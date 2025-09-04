@@ -21,7 +21,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     startDateInput.addEventListener("change", () => {
         checkStartDateWarning()
-        runAllValidations() // Run all validations when start date changes
+        runAllValidations()
     })
     historyTextarea.addEventListener("input", runAllValidations)
     historyCheckbox.addEventListener("change", () => {
@@ -53,6 +53,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function runAllValidations() {
+        const gapWarningBox = document.getElementById("schedule-gap-warning")
+        gapWarningBox.classList.add("hidden") // Reset gap warning
+
         if (!historyCheckbox.checked) {
             validationBox.classList.add("hidden")
             startDateInput.classList.remove("border-red-500")
@@ -62,9 +65,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const text = historyTextarea.value
         const { errors, uniqueGroupCount, maxDate } = validateHistory(text)
-
-        // New check for start date vs history date
         const startDate = new Date(startDateInput.value + "T00:00:00")
+
         if (maxDate && startDate <= maxDate) {
             errors.push(
                 `<b>Overall:</b> Start date must be after the last date in the history (${maxDate.toLocaleDateString()}).`
@@ -72,6 +74,18 @@ document.addEventListener("DOMContentLoaded", () => {
             startDateInput.classList.add("border-red-500")
         } else {
             startDateInput.classList.remove("border-red-500")
+        }
+
+        // --- NEW: Schedule Gap Warning (Yellow Warning) ---
+        if (maxDate && errors.length === 0) {
+            let nextWorkday = new Date(maxDate.getTime())
+            nextWorkday.setDate(nextWorkday.getDate() + 1)
+            while (nextWorkday.getDay() === 0 || nextWorkday.getDay() === 6) {
+                nextWorkday.setDate(nextWorkday.getDate() + 1)
+            }
+            if (startDate.getTime() > nextWorkday.getTime()) {
+                gapWarningBox.classList.remove("hidden")
+            }
         }
 
         if (text.trim() === "" || errors.length > 0) {
@@ -128,7 +142,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 const params = getScheduleParameters()
                 if (!params) return
                 lastScheduleParams = params
-
                 const { startDate, dayCycle, daysOff, weeks, scheduleHistory } =
                     params
                 const scheduleBuilder = new ScheduleBuilder(
@@ -152,7 +165,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 document
                     .getElementById("schedule-output")
                     .classList.remove("hidden")
-                runAllValidations() // Update button state and validation based on final inputs
+                runAllValidations()
             }
         }, 250)
     }
@@ -193,7 +206,6 @@ document.addEventListener("DOMContentLoaded", () => {
         for (let i = 0; i < dataLines.length; i++) {
             const line = dataLines[i]
             const columns = parseScheduleLine(line)
-
             const dateStr = columns[0]
             const dateObj = new Date(dateStr)
             if (isNaN(dateObj.getTime())) {
@@ -205,11 +217,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (maxDate === null || dateObj > maxDate) {
                 maxDate = dateObj
             }
-
             const firstPeriodIndex = columns.findIndex((col) =>
                 col.toLowerCase().startsWith("pd")
             )
-
             if (
                 firstPeriodIndex === -1 ||
                 (columns.length - firstPeriodIndex) % 2 !== 0
@@ -221,15 +231,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 )
                 continue
             }
-
             for (let j = firstPeriodIndex; j < columns.length; j += 2) {
                 const periodStr = columns[j]
                 const group = columns[j + 1]
-
                 if (!periodStr && !group) continue
-
                 const period = parseInt(periodStr.replace(/\D/g, ""), 10)
-
                 if (isNaN(period)) {
                     errors.push(
                         `<b>Line ${i + 1}, Column ${
@@ -237,7 +243,6 @@ document.addEventListener("DOMContentLoaded", () => {
                         }:</b> Invalid period '${periodStr}'.`
                     )
                 }
-
                 if (!group) {
                     errors.push(
                         `<b>Line ${i + 1}, Column ${
@@ -300,16 +305,14 @@ document.addEventListener("DOMContentLoaded", () => {
             const historyText = document
                 .getElementById("history-data")
                 .value.trim()
-
             const { errors } = validateHistory(historyText)
             const startDateObj = new Date(startDate + "T00:00:00")
             const maxDateInHistory = validateHistory(historyText).maxDate
             if (maxDateInHistory && startDateObj <= maxDateInHistory) {
-                errors.push("Start date error") // Add a placeholder to trigger the alert
+                errors.push("Start date error")
             }
-
             if (errors.length > 0) {
-                runAllValidations() // Show the detailed errors in the validation box
+                runAllValidations()
                 alert(
                     "There are errors in your inputs. Please fix the highlighted fields and messages."
                 )
@@ -325,22 +328,18 @@ document.addEventListener("DOMContentLoaded", () => {
             ) {
                 lines.shift()
             }
-
             for (const line of lines) {
                 if (line.trim() === "") continue
-
                 const columns = parseScheduleLine(line)
                 const firstPeriodIndex = columns.findIndex((col) =>
                     col.toLowerCase().startsWith("pd")
                 )
                 if (firstPeriodIndex === -1) continue
-
                 const dateObj = new Date(columns[0])
                 const yyyy = dateObj.getFullYear()
                 const mm = String(dateObj.getMonth() + 1).padStart(2, "0")
                 const dd = String(dateObj.getDate()).padStart(2, "0")
                 const formattedDate = `${yyyy}-${mm}-${dd}`
-
                 for (let i = firstPeriodIndex; i < columns.length; i += 2) {
                     const periodStr = columns[i]
                     const group = columns[i + 1]
