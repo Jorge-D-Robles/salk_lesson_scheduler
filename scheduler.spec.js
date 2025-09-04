@@ -194,22 +194,22 @@ describe("ScheduleBuilder", () => {
             {
                 description: "when history starts on a Tuesday",
                 startDate: "2025-09-02",
-                newScheduleStart: "2025-09-08",
+                newScheduleStart: "2025-09-10",
             },
             {
                 description: "when history starts on a Wednesday",
                 startDate: "2025-09-03",
-                newScheduleStart: "2025-09-08",
+                newScheduleStart: "2025-09-11",
             },
             {
                 description: "when history starts on a Thursday",
                 startDate: "2025-09-04",
-                newScheduleStart: "2025-09-08",
+                newScheduleStart: "2025-09-12",
             },
             {
                 description: "when history starts on a Friday",
                 startDate: "2025-09-05",
-                newScheduleStart: "2025-09-08",
+                newScheduleStart: "2025-09-13",
             },
         ]
 
