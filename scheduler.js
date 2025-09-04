@@ -109,7 +109,7 @@ class ScheduleBuilder {
         let mercyCandidate = {
             group: "MU",
             indexInCycle: -1,
-            longestDaysSince: -1,
+            daysSince: -1,
         }
         for (let i = 0; i < groupsForCycle.length; i++) {
             const potentialGroup = groupsForCycle[i]
@@ -120,21 +120,20 @@ class ScheduleBuilder {
                 : Infinity
             if (!isMercySearch) {
                 if (daysSince >= 28) {
-                    return { group: potentialGroup, indexInCycle: i }
+                    return { group: potentialGroup, indexInCycle: i, daysSince }
                 }
             } else {
-                if (daysSince > mercyCandidate.longestDaysSince) {
+                if (daysSince > mercyCandidate.daysSince) {
                     mercyCandidate = {
                         group: potentialGroup,
                         indexInCycle: i,
-                        longestDaysSince: daysSince,
+                        daysSince: daysSince,
                     }
                 }
             }
         }
-        return isMercySearch
-            ? mercyCandidate
-            : { group: "MU", indexInCycle: -1 }
+        const notFound = { group: "MU", indexInCycle: -1, daysSince: -1 }
+        return isMercySearch ? mercyCandidate : notFound
     }
 
     buildSchedule() {
@@ -143,11 +142,13 @@ class ScheduleBuilder {
         endDate.setDate(endDate.getDate() + this.weeks * 7)
         let groupsForCycle = this.groupSets.flat()
         let weeklyLessonCount = 0
+        let usedGroupsThisWeek = new Set()
 
         while (currentDate < endDate) {
             const dayOfWeek = currentDate.getDay()
             if (dayOfWeek === 1) {
                 weeklyLessonCount = 0
+                usedGroupsThisWeek.clear()
             }
             const isWeekday = dayOfWeek > 0 && dayOfWeek < 6
             const isDayOff = this.daysOff.includes(currentDate.toDateString())
@@ -166,9 +167,19 @@ class ScheduleBuilder {
                             groupsForCycle = this.setupNextGroupCycle()
                         }
 
+                        const usedGroupsToday = entry.lessons.map(
+                            (l) => l.group
+                        )
+                        const weeklyAvailableGroups = (groupPool) =>
+                            groupPool.filter(
+                                (g) =>
+                                    !usedGroupsThisWeek.has(g) &&
+                                    !usedGroupsToday.includes(g)
+                            )
+
                         // Tier 1: Strict search on rotating pool
                         let assignment = this.findBestGroupForPeriod(
-                            groupsForCycle,
+                            weeklyAvailableGroups(groupsForCycle),
                             currentDate,
                             period,
                             false
@@ -176,41 +187,31 @@ class ScheduleBuilder {
 
                         // Tier 2: Strict search on full pool
                         if (assignment.group === "MU") {
-                            const usedGroupsToday = entry.lessons.map(
-                                (l) => l.group
-                            )
-                            const allAvailableGroups =
-                                this.LESSON_GROUPS.filter(
-                                    (g) => !usedGroupsToday.includes(g)
-                                )
                             assignment = this.findBestGroupForPeriod(
-                                allAvailableGroups,
+                                weeklyAvailableGroups(this.LESSON_GROUPS),
                                 currentDate,
                                 period,
                                 false
                             )
                         }
 
-                        // Tier 3: Mercy search fallback (THE FIX IS HERE)
+                        // Tier 3: Mercy search fallback
                         if (assignment.group === "MU") {
-                            // Widen the mercy search to ALL groups, not just the rotating ones.
-                            const usedGroupsToday = entry.lessons.map(
-                                (l) => l.group
-                            )
-                            const allAvailableGroups =
-                                this.LESSON_GROUPS.filter(
-                                    (g) => !usedGroupsToday.includes(g)
-                                )
                             assignment = this.findBestGroupForPeriod(
-                                allAvailableGroups,
+                                weeklyAvailableGroups(this.LESSON_GROUPS),
                                 currentDate,
                                 period,
                                 true
                             )
                         }
 
-                        if (assignment.group !== "MU") {
+                        // FINAL GUARD: Only commit the assignment if it's valid and meets the 28-day rule.
+                        if (
+                            assignment.group !== "MU" &&
+                            assignment.daysSince >= 28
+                        ) {
                             entry.addLesson(period, assignment.group)
+                            usedGroupsThisWeek.add(assignment.group)
                             this.periodAssignments[assignment.group][period] =
                                 new Date(currentDate.getTime())
                             const indexInCycle = groupsForCycle.indexOf(
@@ -220,6 +221,7 @@ class ScheduleBuilder {
                                 groupsForCycle.splice(indexInCycle, 1)
                             }
                         } else {
+                            // If no group satisfies both weekly and 28-day rules, schedule a makeup.
                             entry.addLesson(period, "MU")
                         }
                     }
