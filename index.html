@@ -49,6 +49,18 @@
                 </p>
             </header>
 
+            <div
+                id="start-day-warning"
+                class="hidden bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-md mb-6"
+                role="alert"
+            >
+                <p class="font-bold">Recommendation</p>
+                <p>
+                    For best results and the most balanced schedule, it's
+                    recommended to start on a Monday.
+                </p>
+            </div>
+
             <main class="bg-white p-6 rounded-lg shadow-lg">
                 <div id="form-container">
                     <h2 class="text-2xl font-semibold mb-6">
@@ -154,12 +166,28 @@
                                     rows="10"
                                     class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 font-mono text-sm"
                                 ></textarea>
-                                <p class="mt-2 text-xs text-gray-500">
-                                    Paste the raw
-                                    <b class="text-gray-600">CSV data</b> from a
-                                    previously generated schedule. The header
-                                    row is optional.
-                                </p>
+                                <div class="mt-2 text-xs text-gray-500">
+                                    <p class="font-semibold">
+                                        Accepts two formats (header row is
+                                        optional):
+                                    </p>
+                                    <ul class="list-disc list-inside ml-2">
+                                        <li>
+                                            <b>CSV Paste:</b>
+                                            <code
+                                                >"Mon, Sep 1, 2025","Pd
+                                                1","Flutes",...</code
+                                            >
+                                        </li>
+                                        <li>
+                                            <b>Spreadsheet Paste:</b>
+                                            <code
+                                                >Mon, Sep 1, 2025&emsp;Pd
+                                                1&emsp;Flutes...</code
+                                            >
+                                        </li>
+                                    </ul>
+                                </div>
                                 <div
                                     id="history-validation-box"
                                     class="hidden mt-2 p-3 rounded-md text-sm"
@@ -204,6 +232,12 @@
                                         class="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                                     >
                                         Date
+                                    </th>
+                                    <th
+                                        scope="col"
+                                        class="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                    >
+                                        Day Cycle
                                     </th>
                                     <th
                                         scope="col"
@@ -273,12 +307,6 @@
                         </table>
                     </div>
                     <div class="mt-6 flex justify-end space-x-4">
-                        <button
-                            id="reroll-btn"
-                            class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-lg transition duration-300"
-                        >
-                            Re-Roll
-                        </button>
                         <button
                             id="save-csv-btn"
                             class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300"

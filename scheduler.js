@@ -4,8 +4,9 @@
  * Represents a single day in the schedule.
  */
 class ScheduleEntry {
-    constructor(date) {
+    constructor(date, dayCycle) {
         this.date = date
+        this.dayCycle = dayCycle // Store the day cycle
         this.lessons = [] // An array of {period, group} objects
     }
 
@@ -50,7 +51,6 @@ class ScheduleBuilder {
             )
             groupsFromHistory.delete("MU")
 
-            // --- NEW: Add server-side validation for the group count ---
             if (groupsFromHistory.size !== 22) {
                 throw new Error(
                     `History data must contain exactly 22 unique non-MU groups. Found ${groupsFromHistory.size}.`
@@ -81,7 +81,6 @@ class ScheduleBuilder {
         // Step 4: Create the rotating group sets for the scheduling algorithm.
         this.groupSets = []
         const allGroupsCopy = [...this.LESSON_GROUPS]
-        // Ensure there are groups to schedule before attempting to create sets.
         if (allGroupsCopy.length > 0) {
             this.groupSets.push(allGroupsCopy.splice(0, 5))
             this.groupSets.push(allGroupsCopy.splice(0, 5))
@@ -93,17 +92,10 @@ class ScheduleBuilder {
 
     _populateAssignmentsFromHistory(history) {
         history.forEach((lesson) => {
-            // Basic validation for the history entry.
             if (!lesson.group || !lesson.period || !lesson.date) return
-
-            // Only process groups that were identified as part of this schedule.
             if (this.periodAssignments[lesson.group]) {
-                // Robustly parse 'YYYY-MM-DD' as a local date to avoid timezone issues.
                 const parts = lesson.date.split("-").map((p) => parseInt(p, 10))
                 const historyDate = new Date(parts[0], parts[1] - 1, parts[2])
-
-                // Check if this lesson is more recent than one already recorded.
-                // This ensures we only store the *last* time a group was seen for a period.
                 const existingDate =
                     this.periodAssignments[lesson.group][lesson.period]
                 if (!existingDate || historyDate > existingDate) {
@@ -173,7 +165,13 @@ class ScheduleBuilder {
             const isDayOff = this.daysOff.includes(currentDate.toDateString())
 
             if (isWeekday && !isDayOff) {
-                const entry = new ScheduleEntry(new Date(currentDate.getTime()))
+                // --- FIX: Calculate the correct 1 or 2 day cycle for display ---
+                const displayCycle = this.dayCycle % 2 === 0 ? 2 : 1
+                const entry = new ScheduleEntry(
+                    new Date(currentDate.getTime()),
+                    displayCycle // Pass the correct 1 or 2 value
+                )
+
                 const periodsForDay =
                     this.dayCycle % 2 !== 0
                         ? this.DAY1_PERIODS
@@ -195,16 +193,12 @@ class ScheduleBuilder {
                                     !usedGroupsThisWeek.has(g) &&
                                     !usedGroupsToday.includes(g)
                             )
-
-                        // Tier 1: Strict search on rotating pool
                         let assignment = this.findBestGroupForPeriod(
                             weeklyAvailableGroups(groupsForCycle),
                             currentDate,
                             period,
                             false
                         )
-
-                        // Tier 2: Strict search on full pool
                         if (assignment.group === "MU") {
                             assignment = this.findBestGroupForPeriod(
                                 weeklyAvailableGroups(this.LESSON_GROUPS),
@@ -213,8 +207,6 @@ class ScheduleBuilder {
                                 false
                             )
                         }
-
-                        // Tier 3: Mercy search fallback
                         if (assignment.group === "MU") {
                             assignment = this.findBestGroupForPeriod(
                                 weeklyAvailableGroups(this.LESSON_GROUPS),
@@ -223,8 +215,6 @@ class ScheduleBuilder {
                                 true
                             )
                         }
-
-                        // FINAL GUARD: Only commit the assignment if it's valid and meets the 28-day rule.
                         if (
                             assignment.group !== "MU" &&
                             assignment.daysSince >= 28
@@ -240,14 +230,13 @@ class ScheduleBuilder {
                                 groupsForCycle.splice(indexInCycle, 1)
                             }
                         } else {
-                            // If no group satisfies both weekly and 28-day rules, schedule a makeup.
                             entry.addLesson(period, "MU")
                         }
                     }
                     weeklyLessonCount++
                 }
                 this.schedule.push(entry)
-                this.dayCycle++
+                this.dayCycle++ // The internal counter still increments normally
             }
             currentDate.setDate(currentDate.getDate() + 1)
         }

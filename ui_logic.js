@@ -5,19 +5,29 @@ let lastScheduleParams = {}
 document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("schedule-form")
     const generateBtn = document.getElementById("generate-btn")
-    const rerollBtn = document.getElementById("reroll-btn")
     const saveCsvBtn = document.getElementById("save-csv-btn")
     const addDayOffBtn = document.getElementById("add-day-off")
     const historyCheckbox = document.getElementById("history-checkbox")
     const historyContainer = document.getElementById("history-container")
     const historyTextarea = document.getElementById("history-data")
     const validationBox = document.getElementById("history-validation-box")
+    const startDateInput = document.getElementById("start-date")
 
     const today = new Date()
     const yyyy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, "0")
     const dd = String(today.getDate()).padStart(2, "0")
-    document.getElementById("start-date").value = `${yyyy}-${mm}-${dd}`
+    startDateInput.value = `${yyyy}-${mm}-${dd}`
+
+    startDateInput.addEventListener("change", () => {
+        checkStartDateWarning()
+        runAllValidations() // Run all validations when start date changes
+    })
+    historyTextarea.addEventListener("input", runAllValidations)
+    historyCheckbox.addEventListener("change", () => {
+        historyContainer.classList.toggle("hidden", !historyCheckbox.checked)
+        runAllValidations()
+    })
 
     addDayOffBtn.addEventListener("click", () => {
         const container = document.getElementById("days-off-container")
@@ -30,50 +40,64 @@ document.addEventListener("DOMContentLoaded", () => {
         container.appendChild(newDayOff)
     })
 
-    historyCheckbox.addEventListener("change", () => {
-        historyContainer.classList.toggle("hidden", !historyCheckbox.checked)
-        if (historyCheckbox.checked) {
-            handleHistoryValidation()
-        } else {
-            validationBox.classList.add("hidden")
+    function checkStartDateWarning() {
+        const warningBox = document.getElementById("start-day-warning")
+        const dateValue = startDateInput.value
+        if (!dateValue) {
+            warningBox.classList.add("hidden")
+            return
         }
-        updateGenerateButtonState()
-    })
+        const dateObj = new Date(dateValue + "T00:00:00")
+        const day = dateObj.getDay()
+        warningBox.classList.toggle("hidden", day === 1)
+    }
 
-    historyTextarea.addEventListener("input", handleHistoryValidation)
-
-    function handleHistoryValidation() {
-        const text = historyTextarea.value
-        const { errors, uniqueGroupCount } = validateHistory(text)
-
-        if (text.trim() === "") {
+    function runAllValidations() {
+        if (!historyCheckbox.checked) {
             validationBox.classList.add("hidden")
+            startDateInput.classList.remove("border-red-500")
             updateGenerateButtonState()
             return
         }
 
-        validationBox.classList.remove("hidden")
-        if (errors.length > 0) {
+        const text = historyTextarea.value
+        const { errors, uniqueGroupCount, maxDate } = validateHistory(text)
+
+        // New check for start date vs history date
+        const startDate = new Date(startDateInput.value + "T00:00:00")
+        if (maxDate && startDate <= maxDate) {
+            errors.push(
+                `<b>Overall:</b> Start date must be after the last date in the history (${maxDate.toLocaleDateString()}).`
+            )
+            startDateInput.classList.add("border-red-500")
+        } else {
+            startDateInput.classList.remove("border-red-500")
+        }
+
+        if (text.trim() === "" || errors.length > 0) {
+            validationBox.classList.remove("hidden")
             validationBox.innerHTML = `<ul>${errors
                 .map((e) => `<li>- ${e}</li>`)
                 .join("")}</ul>`
             validationBox.className =
                 "mt-2 p-3 rounded-md text-sm bg-red-50 text-red-700"
         } else {
+            validationBox.classList.remove("hidden")
             validationBox.innerHTML = `✅ All checks pass. Found ${uniqueGroupCount} of 22 required unique groups.`
             validationBox.className =
                 "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
         }
-        updateGenerateButtonState()
+        updateGenerateButtonState(errors)
     }
 
-    function updateGenerateButtonState() {
+    function updateGenerateButtonState(errors = null) {
         if (!historyCheckbox.checked) {
             generateBtn.disabled = false
             return
         }
-
-        const { errors } = validateHistory(historyTextarea.value)
+        if (errors === null) {
+            errors = validateHistory(historyTextarea.value).errors
+        }
         generateBtn.disabled = errors.length > 0
     }
 
@@ -88,22 +112,6 @@ document.addEventListener("DOMContentLoaded", () => {
     form.addEventListener("submit", (e) => {
         e.preventDefault()
         runScheduler()
-    })
-
-    rerollBtn.addEventListener("click", () => {
-        if (lastScheduleParams.startDate) {
-            const { startDate, dayCycle, daysOff, weeks, scheduleHistory } =
-                lastScheduleParams
-            const scheduleBuilder = new ScheduleBuilder(
-                startDate,
-                dayCycle,
-                daysOff,
-                weeks,
-                scheduleHistory
-            )
-            const schedule = scheduleBuilder.buildSchedule()
-            displaySchedule(schedule)
-        }
     })
 
     saveCsvBtn.addEventListener("click", () => {
@@ -144,55 +152,77 @@ document.addEventListener("DOMContentLoaded", () => {
                 document
                     .getElementById("schedule-output")
                     .classList.remove("hidden")
-                updateGenerateButtonState()
+                runAllValidations() // Update button state and validation based on final inputs
             }
         }, 250)
+    }
+
+    function parseScheduleLine(line) {
+        if (line.includes("\t")) {
+            return line.split("\t")
+        } else {
+            const columns = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || []
+            return columns.map((col) => col.trim().replace(/^"|"$/g, ""))
+        }
     }
 
     function validateHistory(text) {
         const errors = []
         const lines = text.split("\n").filter((line) => line.trim() !== "")
         const uniqueGroups = new Set()
+        const parsedLessons = []
+        let maxDate = null
 
         if (text.trim() === "") {
             errors.push("<b>Overall:</b> History data cannot be empty.")
-            return { errors, uniqueGroupCount: 0 }
+            return { errors, uniqueGroupCount: 0, maxDate }
         }
 
         const dataLines =
-            lines.length > 0 && lines[0].toLowerCase().includes("date")
+            lines.length > 0 &&
+            (lines[0].toLowerCase().includes("date") ||
+                lines[0].toLowerCase().includes("period"))
                 ? lines.slice(1)
                 : lines
 
         if (dataLines.length === 0) {
-            errors.push("<b>Overall:</b> No data rows found in the CSV paste.")
-            return { errors, uniqueGroupCount: 0 }
+            errors.push("<b>Overall:</b> No data rows found in the paste.")
+            return { errors, uniqueGroupCount: 0, maxDate }
         }
 
         for (let i = 0; i < dataLines.length; i++) {
             const line = dataLines[i]
-            const columns = line
-                .split(",")
-                .map((col) => col.trim().replace(/"/g, ""))
-
-            if (columns.length < 3 || columns.length % 2 === 0) {
-                errors.push(
-                    `<b>Line ${
-                        i + 1
-                    }:</b> Invalid number of columns. Each row should have a date and pairs of Period/Group.`
-                )
-                continue
-            }
+            const columns = parseScheduleLine(line)
 
             const dateStr = columns[0]
-            if (isNaN(new Date(dateStr).getTime())) {
+            const dateObj = new Date(dateStr)
+            if (isNaN(dateObj.getTime())) {
                 errors.push(
                     `<b>Line ${i + 1}:</b> Could not parse date '${dateStr}'.`
                 )
                 continue
             }
+            if (maxDate === null || dateObj > maxDate) {
+                maxDate = dateObj
+            }
 
-            for (let j = 1; j < columns.length; j += 2) {
+            const firstPeriodIndex = columns.findIndex((col) =>
+                col.toLowerCase().startsWith("pd")
+            )
+
+            if (
+                firstPeriodIndex === -1 ||
+                (columns.length - firstPeriodIndex) % 2 !== 0
+            ) {
+                errors.push(
+                    `<b>Line ${
+                        i + 1
+                    }:</b> Invalid column structure. Could not find valid Period/Group pairs.`
+                )
+                continue
+            }
+
+            for (let j = firstPeriodIndex; j < columns.length; j += 2) {
                 const periodStr = columns[j]
                 const group = columns[j + 1]
 
@@ -214,8 +244,11 @@ document.addEventListener("DOMContentLoaded", () => {
                             j + 2
                         }:</b> Group name is missing.`
                     )
-                } else if (group.toUpperCase() !== "MU") {
-                    uniqueGroups.add(group)
+                } else {
+                    if (group.toUpperCase() !== "MU") {
+                        uniqueGroups.add(group)
+                    }
+                    parsedLessons.push({ date: dateObj, period, group })
                 }
             }
         }
@@ -225,7 +258,24 @@ document.addEventListener("DOMContentLoaded", () => {
                 `<b>Overall:</b> Found ${uniqueGroups.size} unique groups. The schedule requires exactly <b>22</b> unique non-MU groups.`
             )
         }
-        return { errors, uniqueGroupCount: uniqueGroups.size }
+        if (parsedLessons.length > 0) {
+            const uniqueDayStrings = new Set(
+                parsedLessons.map((p) => p.date.toDateString())
+            )
+            const uniqueDayCount = uniqueDayStrings.size
+            if (uniqueDayCount < 20) {
+                errors.push(
+                    `<b>Overall:</b> History must contain at least 4 weeks of lessons (~20 school days). Found ${uniqueDayCount} days.`
+                )
+            }
+            if (uniqueDayCount > 40) {
+                errors.push(
+                    `<b>Overall:</b> History should not contain more than 8 weeks of lessons (~40 school days). Found ${uniqueDayCount} days.`
+                )
+            }
+        }
+
+        return { errors, uniqueGroupCount: uniqueGroups.size, maxDate }
     }
 
     function getScheduleParameters() {
@@ -252,33 +302,46 @@ document.addEventListener("DOMContentLoaded", () => {
                 .value.trim()
 
             const { errors } = validateHistory(historyText)
+            const startDateObj = new Date(startDate + "T00:00:00")
+            const maxDateInHistory = validateHistory(historyText).maxDate
+            if (maxDateInHistory && startDateObj <= maxDateInHistory) {
+                errors.push("Start date error") // Add a placeholder to trigger the alert
+            }
+
             if (errors.length > 0) {
+                runAllValidations() // Show the detailed errors in the validation box
                 alert(
-                    "There are errors in your history data. Please fix them before generating a schedule:\n\n- " +
-                        errors.join("\n- ").replace(/<b>|<\/b>/g, "")
+                    "There are errors in your inputs. Please fix the highlighted fields and messages."
                 )
                 return null
             }
 
             const parsedHistory = []
             let lines = historyText.split("\n")
-            if (lines.length > 0 && lines[0].toLowerCase().includes("date")) {
+            if (
+                lines.length > 0 &&
+                (lines[0].toLowerCase().includes("date") ||
+                    lines[0].toLowerCase().includes("period"))
+            ) {
                 lines.shift()
             }
 
             for (const line of lines) {
                 if (line.trim() === "") continue
 
-                const columns = line
-                    .split(",")
-                    .map((col) => col.trim().replace(/"/g, ""))
+                const columns = parseScheduleLine(line)
+                const firstPeriodIndex = columns.findIndex((col) =>
+                    col.toLowerCase().startsWith("pd")
+                )
+                if (firstPeriodIndex === -1) continue
+
                 const dateObj = new Date(columns[0])
                 const yyyy = dateObj.getFullYear()
                 const mm = String(dateObj.getMonth() + 1).padStart(2, "0")
                 const dd = String(dateObj.getDate()).padStart(2, "0")
                 const formattedDate = `${yyyy}-${mm}-${dd}`
 
-                for (let i = 1; i < columns.length; i += 2) {
+                for (let i = firstPeriodIndex; i < columns.length; i += 2) {
                     const periodStr = columns[i]
                     const group = columns[i + 1]
                     if (periodStr && group) {
@@ -307,15 +370,15 @@ document.addEventListener("DOMContentLoaded", () => {
         tableBody.innerHTML = ""
 
         if (schedule.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="11" class="text-center py-4">No schedule generated for the selected dates. Check days off.</td></tr>`
+            tableBody.innerHTML = `<tr><td colspan="12" class="text-center py-4">No schedule generated for the selected dates. Check days off.</td></tr>`
             return
         }
 
         schedule.forEach((entry, index) => {
             if (entry.date.getDay() === 1 && index > 0) {
                 const spacerRow = document.createElement("tr")
-                spacerRow.className = "bg-gray-200"
-                spacerRow.innerHTML = `<td colspan="11" class="py-1"></td>`
+                spacerRow.className = "bg-gray-200 weekly-spacer"
+                spacerRow.innerHTML = `<td colspan="12" class="py-1"></td>`
                 tableBody.appendChild(spacerRow)
             }
 
@@ -327,7 +390,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 day: "numeric",
             })
 
-            let rowHTML = `<td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td>`
+            let rowHTML = `<td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700">${entry.dayCycle}</td>`
 
             for (let i = 0; i < 5; i++) {
                 if (entry.lessons[i]) {
@@ -346,6 +409,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
             row.innerHTML = rowHTML
             tableBody.appendChild(row)
+
+            const isEndOfCycle = (index + 1) % 20 === 0
+            const isNotLastDay = index + 1 < schedule.length
+
+            if (isEndOfCycle && isNotLastDay) {
+                const cycleSpacerRow = document.createElement("tr")
+                cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
+                cycleSpacerRow.innerHTML = `<td colspan="12" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Cycle ---</td>`
+                tableBody.appendChild(cycleSpacerRow)
+            }
         })
     }
 
@@ -357,10 +430,16 @@ document.addEventListener("DOMContentLoaded", () => {
             .querySelectorAll("#schedule-table th")
             .forEach((th) => header.push(`"${th.innerText}"`))
         csv.push(header.join(","))
+
         rows.forEach((row) => {
-            if (row.querySelector('td[colspan="11"]')) {
+            if (row.classList.contains("weekly-spacer")) {
                 return
             }
+            if (row.classList.contains("cycle-spacer")) {
+                csv.push("")
+                return
+            }
+
             const cols = row.querySelectorAll("td")
             const rowData = []
             cols.forEach((col) => {
@@ -381,6 +460,8 @@ document.addEventListener("DOMContentLoaded", () => {
         downloadLink.click()
         document.body.removeChild(downloadLink)
     }
-    // Set initial state of the button on page load
-    updateGenerateButtonState()
+
+    // Set initial state of the page
+    checkStartDateWarning()
+    runAllValidations()
 })
