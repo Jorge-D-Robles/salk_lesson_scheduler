@@ -124,6 +124,95 @@
                             </div>
                         </div>
 
+                        <!-- NEW: Custom Schedule Checkbox -->
+                        <div class="md:col-span-3 flex items-center">
+                            <input
+                                id="custom-schedule-checkbox"
+                                type="checkbox"
+                                class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <label
+                                for="custom-schedule-checkbox"
+                                class="ml-2 block text-sm text-gray-900"
+                                >Create custom schedule with custom group
+                                names</label
+                            >
+                        </div>
+
+                        <!-- NEW: Hidden Container for Custom Group Inputs -->
+                        <div
+                            id="custom-schedule-container"
+                            class="hidden md:col-span-3 space-y-4 border-t pt-4"
+                        >
+                            <p class="text-sm text-gray-600">
+                                Enter 22 unique group names, separated by
+                                commas. The groups are split into the bundles
+                                used by the scheduler.
+                            </p>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label
+                                        class="block text-sm font-medium text-gray-700"
+                                        >Group Bundle 1 (5 names)</label
+                                    >
+                                    <input
+                                        type="text"
+                                        id="bundle-1"
+                                        placeholder="e.g., Flutes, Clarinets, Oboes, Bassoons, Saxes"
+                                        class="custom-group-input mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label
+                                        class="block text-sm font-medium text-gray-700"
+                                        >Group Bundle 2 (5 names)</label
+                                    >
+                                    <input
+                                        type="text"
+                                        id="bundle-2"
+                                        placeholder="e.g., Trumpets, Horns, Trombones, Euphoniums, Tubas"
+                                        class="custom-group-input mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label
+                                        class="block text-sm font-medium text-gray-700"
+                                        >Group Bundle 3 (4 names)</label
+                                    >
+                                    <input
+                                        type="text"
+                                        id="bundle-3"
+                                        placeholder="e.g., Violins 1, Violins 2, Violas, Cellos"
+                                        class="custom-group-input mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                                    />
+                                </div>
+                                <div>
+                                    <label
+                                        class="block text-sm font-medium text-gray-700"
+                                        >Group Bundle 4 (4 names)</label
+                                    >
+                                    <input
+                                        type="text"
+                                        id="bundle-4"
+                                        placeholder="e.g., Basses, Percussion 1, Percussion 2, Piano"
+                                        class="custom-group-input mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                                    />
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label
+                                        class="block text-sm font-medium text-gray-700"
+                                        >Group Bundle 5 (4 names)</label
+                                    >
+                                    <input
+                                        type="text"
+                                        id="bundle-5"
+                                        placeholder="e.g., Guitars, Ukuleles, Recorders, Vocals"
+                                        class="custom-group-input mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="md:col-span-3 flex justify-end space-x-4">
                             <button
                                 type="submit"
@@ -274,7 +363,13 @@
              * The main class for building the schedule based on new 25/26 rules.
              */
             class ScheduleBuilder {
-                constructor(startDate, dayCycle, daysOff, weeks) {
+                constructor(
+                    startDate,
+                    dayCycle,
+                    daysOff,
+                    weeks,
+                    customGroups = null
+                ) {
                     const startParts = startDate.split("-")
                     this.startDate = new Date(
                         startParts[0],
@@ -296,9 +391,16 @@
                     this.weeks = weeks
                     this.schedule = []
 
-                    this.LESSON_GROUPS = Array.from({ length: 22 }, (_, i) =>
-                        String.fromCharCode("A".charCodeAt(0) + i)
-                    ) // Groups A-V
+                    // Logic to use custom groups or fall back to default
+                    if (customGroups && customGroups.length === 22) {
+                        this.LESSON_GROUPS = customGroups
+                    } else {
+                        this.LESSON_GROUPS = Array.from(
+                            { length: 22 },
+                            (_, i) => String.fromCharCode("A".charCodeAt(0) + i)
+                        ) // Groups A-V
+                    }
+
                     this.DAY1_PERIODS = [1, 4, 7, 8]
                     this.DAY2_PERIODS = [1, 2, 3, 7, 8]
 
@@ -309,11 +411,11 @@
 
                     this.groupSets = []
                     const allGroupsCopy = [...this.LESSON_GROUPS]
-                    this.groupSets.push(allGroupsCopy.splice(0, 5)) // A-E
-                    this.groupSets.push(allGroupsCopy.splice(0, 5)) // F-J
-                    this.groupSets.push(allGroupsCopy.splice(0, 4)) // K-N
-                    this.groupSets.push(allGroupsCopy.splice(0, 4)) // O-R
-                    this.groupSets.push(allGroupsCopy.splice(0, 4)) // S-V
+                    this.groupSets.push(allGroupsCopy.splice(0, 5))
+                    this.groupSets.push(allGroupsCopy.splice(0, 5))
+                    this.groupSets.push(allGroupsCopy.splice(0, 4))
+                    this.groupSets.push(allGroupsCopy.splice(0, 4))
+                    this.groupSets.push(allGroupsCopy.splice(0, 4))
                 }
 
                 /**
@@ -331,11 +433,6 @@
 
                 /**
                  * Finds the best available group for a period.
-                 * @param {string[]} groupsForCycle - The list of groups remaining in the cycle.
-                 * @param {Date} date - The current date for scheduling.
-                 * @param {number} period - The period to schedule for.
-                 * @param {boolean} isMercySearch - If true, relaxes the 28-day rule and finds the "least bad" option.
-                 * @returns {object} { group: string, indexInCycle: number }
                  */
                 findBestGroupForPeriod(
                     groupsForCycle,
@@ -360,7 +457,6 @@
                             : Infinity
 
                         if (!isMercySearch) {
-                            // Standard search: return the first group that satisfies the 28-day rule.
                             if (daysSince >= 28) {
                                 return {
                                     group: potentialGroup,
@@ -368,7 +464,6 @@
                                 }
                             }
                         } else {
-                            // Mercy search: find the group that has waited the longest, regardless of the 28-day rule.
                             if (daysSince > mercyCandidate.longestDaysSince) {
                                 mercyCandidate = {
                                     group: potentialGroup,
@@ -378,12 +473,9 @@
                             }
                         }
                     }
-
-                    // If standard search, we fell through, so no eligible group was found.
-                    if (!isMercySearch) return { group: "MU", indexInCycle: -1 }
-
-                    // If mercy search, return the best candidate we found.
-                    return mercyCandidate
+                    return isMercySearch
+                        ? mercyCandidate
+                        : { group: "MU", indexInCycle: -1 }
                 }
 
                 /**
@@ -428,18 +520,16 @@
                                             this.setupNextGroupCycle()
                                     }
 
-                                    // --- NEW, ROBUST LOGIC ---
-
-                                    // 1. First attempt: Strict search on the rotating group cycle.
+                                    // Tier 1: Strict search on rotating pool
                                     let assignment =
                                         this.findBestGroupForPeriod(
                                             groupsForCycle,
                                             currentDate,
                                             period,
-                                            false // Strict search
+                                            false
                                         )
 
-                                    // 2. Second attempt: If the first failed, search ALL groups strictly.
+                                    // Tier 2: Strict search on full pool
                                     if (assignment.group === "MU") {
                                         const usedGroupsToday =
                                             entry.lessons.map((l) => l.group)
@@ -448,28 +538,25 @@
                                                 (g) =>
                                                     !usedGroupsToday.includes(g)
                                             )
-
                                         assignment =
                                             this.findBestGroupForPeriod(
                                                 allAvailableGroups,
                                                 currentDate,
                                                 period,
-                                                false // Still a strict search
+                                                false
                                             )
                                     }
 
-                                    // 3. Final Fallback: If BOTH strict searches failed, now we use mercy.
+                                    // Tier 3: Mercy search fallback
                                     if (assignment.group === "MU") {
                                         assignment =
                                             this.findBestGroupForPeriod(
                                                 groupsForCycle,
                                                 currentDate,
                                                 period,
-                                                true // Mercy search
+                                                true
                                             )
                                     }
-
-                                    // --- END OF NEW LOGIC ---
 
                                     if (assignment.group !== "MU") {
                                         entry.addLesson(
@@ -482,7 +569,6 @@
                                             currentDate.getTime()
                                         )
 
-                                        // Remove the assigned group from the current cycle if it exists there.
                                         const indexInCycle =
                                             groupsForCycle.indexOf(
                                                 assignment.group
@@ -507,6 +593,7 @@
                     return this.schedule
                 }
             }
+
             // --- UI Logic and Event Handling ---
 
             let lastScheduleParams = {}
@@ -517,6 +604,12 @@
                 const rerollBtn = document.getElementById("reroll-btn")
                 const saveCsvBtn = document.getElementById("save-csv-btn")
                 const addDayOffBtn = document.getElementById("add-day-off")
+                const customScheduleCheckbox = document.getElementById(
+                    "custom-schedule-checkbox"
+                )
+                const customScheduleContainer = document.getElementById(
+                    "custom-schedule-container"
+                )
 
                 const today = new Date()
                 const yyyy = today.getFullYear()
@@ -538,6 +631,13 @@
                     container.appendChild(newDayOff)
                 })
 
+                customScheduleCheckbox.addEventListener("change", () => {
+                    customScheduleContainer.classList.toggle(
+                        "hidden",
+                        !customScheduleCheckbox.checked
+                    )
+                })
+
                 document
                     .getElementById("days-off-container")
                     .addEventListener("click", (e) => {
@@ -553,13 +653,19 @@
 
                 rerollBtn.addEventListener("click", () => {
                     if (lastScheduleParams.startDate) {
-                        const { startDate, dayCycle, daysOff, weeks } =
-                            lastScheduleParams
+                        const {
+                            startDate,
+                            dayCycle,
+                            daysOff,
+                            weeks,
+                            customGroups,
+                        } = lastScheduleParams
                         const scheduleBuilder = new ScheduleBuilder(
                             startDate,
                             dayCycle,
                             daysOff,
-                            weeks
+                            weeks,
+                            customGroups
                         )
                         const schedule = scheduleBuilder.buildSchedule()
                         displaySchedule(schedule)
@@ -585,13 +691,19 @@
                             if (!params) return
                             lastScheduleParams = params
 
-                            const { startDate, dayCycle, daysOff, weeks } =
-                                params
+                            const {
+                                startDate,
+                                dayCycle,
+                                daysOff,
+                                weeks,
+                                customGroups,
+                            } = params
                             const scheduleBuilder = new ScheduleBuilder(
                                 startDate,
                                 dayCycle,
                                 daysOff,
-                                weeks
+                                weeks,
+                                customGroups
                             )
                             const schedule = scheduleBuilder.buildSchedule()
                             displaySchedule(schedule)
@@ -623,7 +735,6 @@
                         document.getElementById("weeks").value,
                         10
                     )
-
                     const daysOffInputs =
                         document.querySelectorAll(".day-off-input")
                     const daysOff = Array.from(daysOffInputs)
@@ -645,7 +756,36 @@
                         return null
                     }
 
-                    return { startDate, dayCycle, daysOff, weeks }
+                    let customGroups = null
+                    if (customScheduleCheckbox.checked) {
+                        const customGroupInputs = document.querySelectorAll(
+                            ".custom-group-input"
+                        )
+                        const allCustomGroups = []
+                        customGroupInputs.forEach((input) => {
+                            const groups = input.value
+                                .split(",")
+                                .map((g) => g.trim())
+                                .filter(Boolean)
+                            allCustomGroups.push(...groups)
+                        })
+
+                        if (allCustomGroups.length !== 22) {
+                            alert(
+                                `Custom schedule requires exactly 22 group names. You provided ${allCustomGroups.length}.`
+                            )
+                            return null
+                        }
+                        customGroups = allCustomGroups
+                    }
+
+                    return {
+                        startDate,
+                        dayCycle,
+                        daysOff,
+                        weeks,
+                        customGroups,
+                    }
                 }
 
                 function displaySchedule(schedule) {
