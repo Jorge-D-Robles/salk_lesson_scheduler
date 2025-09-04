@@ -185,13 +185,60 @@ describe("ScheduleBuilder", () => {
     })
 
     describe("Schedule with History", () => {
+        // --- Test Setup: Helper to create valid history data ---
+        const FULL_GROUP_LIST = [
+            "Flutes",
+            "Clarinets",
+            "Oboes",
+            "Bassoons",
+            "Saxes",
+            "Trumpets",
+            "Horns",
+            "Trombones",
+            "Euphoniums",
+            "Tubas",
+            "Violins1",
+            "Violins2",
+            "Violas",
+            "Cellos",
+            "Basses",
+            "Percussion1",
+            "Percussion2",
+            "Piano",
+            "Guitars",
+            "Ukuleles",
+            "Recorders",
+            "Vocals",
+        ]
+
+        const createFullBaseHistory = (startDate) => {
+            const baseHistory = []
+            const date = new Date(`${startDate}T12:00:00Z`)
+            const periods = [1, 4, 7, 8, 2, 3]
+            let currentPeriodIndex = 0
+            FULL_GROUP_LIST.forEach((group) => {
+                const dayOfWeek = date.getDay()
+                if (dayOfWeek === 6 || dayOfWeek === 0) {
+                    date.setDate(date.getDate() + (dayOfWeek === 6 ? 2 : 1))
+                }
+                baseHistory.push({
+                    date: date.toISOString().split("T")[0],
+                    period: periods[currentPeriodIndex % periods.length],
+                    group: group,
+                })
+                currentPeriodIndex++
+                if (currentPeriodIndex % 5 === 0) {
+                    date.setDate(date.getDate() + 1)
+                }
+            })
+            return baseHistory
+        }
+
         // --- Basic History Integrity Tests ---
-        it("should identify and de-duplicate unique groups from history data", () => {
-            const historyData = [
-                { date: "2025-08-01", period: 1, group: "Flutes" },
-                { date: "2025-08-01", period: 4, group: "Oboes" },
-                { date: "2025-08-02", period: 2, group: "Flutes" },
-            ]
+        it("should correctly identify the 22 groups from a history with duplicates", () => {
+            const historyData = createFullBaseHistory("2025-08-01")
+            // Add a duplicate entry
+            historyData.push({ date: "2025-08-04", period: 5, group: "Flutes" })
             const scheduleBuilder = new ScheduleBuilder(
                 "2025-09-01",
                 1,
@@ -199,19 +246,25 @@ describe("ScheduleBuilder", () => {
                 1,
                 historyData
             )
-            expect(scheduleBuilder.LESSON_GROUPS.length).toBe(2)
-            expect(scheduleBuilder.LESSON_GROUPS.sort()).toEqual([
-                "Flutes",
-                "Oboes",
-            ])
+            expect(scheduleBuilder.LESSON_GROUPS.length).toBe(22)
+            expect(scheduleBuilder.LESSON_GROUPS.sort()).toEqual(
+                FULL_GROUP_LIST.sort()
+            )
         })
 
         it("should correctly populate its state with the MOST RECENT lesson from history", () => {
-            const historyData = [
-                { date: "2025-08-11", period: 1, group: "Flutes" },
-                { date: "2025-08-12", period: 2, group: "Clarinets" },
-                { date: "2025-08-25", period: 1, group: "Flutes" },
-            ]
+            const historyData = createFullBaseHistory("2025-08-01")
+            // Add two conflicting entries for Flutes/Pd1. The builder should use the latest one.
+            historyData.push({
+                date: "2025-08-11",
+                period: 1,
+                group: "Flutes",
+            })
+            historyData.push({
+                date: "2025-08-25",
+                period: 1,
+                group: "Flutes",
+            })
             const scheduleBuilder = new ScheduleBuilder(
                 "2025-09-01",
                 1,
@@ -238,38 +291,19 @@ describe("ScheduleBuilder", () => {
 
         // --- Exhaustive History Conflict Permutations ---
         describe("when checking for conflicts with exhaustive permutations", () => {
-            const richConflictHistory = [
-                { date: "2025-09-08", period: 1, group: "Flutes" },
-                { date: "2025-09-08", period: 4, group: "Oboes" },
-                { date: "2025-09-09", period: 1, group: "Clarinets" },
-                { date: "2025-09-09", period: 2, group: "Bassoons" },
-                { date: "2025-09-10", period: 7, group: "Saxes" },
-                { date: "2025-09-11", period: 8, group: "Trumpets" },
-                { date: "2025-09-12", period: 3, group: "Horns" },
-            ]
-            const decemberHistory = [
-                { date: "2025-12-01", period: 1, group: "Flutes" },
-                { date: "2025-12-02", period: 2, group: "Clarinets" },
-                { date: "2025-12-05", period: 3, group: "Oboes" },
-            ]
-            const leapYearHistory = [
-                { date: "2028-02-22", period: 1, group: "Flutes" },
-                { date: "2028-02-24", period: 2, group: "Clarinets" },
-            ]
-
             const exhaustiveHistoryCases = [
                 {
                     description: "when starting on a Monday with days off",
                     newScheduleStart: "2025-09-29",
                     daysOff: ["2025-09-30", "2025-10-08"],
-                    history: richConflictHistory,
+                    history: createFullBaseHistory("2025-09-08"),
                 },
                 {
                     description:
                         "when starting on a Friday before a Mon/Tue off",
                     newScheduleStart: "2025-09-26",
                     daysOff: ["2025-09-29", "2025-09-30"],
-                    history: richConflictHistory,
+                    history: createFullBaseHistory("2025-09-08"),
                 },
                 {
                     description:
@@ -282,7 +316,7 @@ describe("ScheduleBuilder", () => {
                         "2025-10-02",
                         "2025-10-03",
                     ],
-                    history: richConflictHistory,
+                    history: createFullBaseHistory("2025-09-08"),
                 },
                 {
                     description:
@@ -300,21 +334,21 @@ describe("ScheduleBuilder", () => {
                         "2026-01-01",
                         "2026-01-02",
                     ],
-                    history: decemberHistory,
+                    history: createFullBaseHistory("2025-12-01"),
                 },
                 {
                     description:
                         "when starting after a 'swiss cheese' week of days off",
                     newScheduleStart: "2025-09-22",
                     daysOff: ["2025-09-22", "2025-09-24", "2025-09-26"],
-                    history: richConflictHistory,
+                    history: createFullBaseHistory("2025-09-02"),
                 },
                 {
                     description:
                         "when the schedule crosses a leap day boundary with history",
-                    newScheduleStart: "2028-03-13", // Monday, 18 days after the last history entry
+                    newScheduleStart: "2028-03-13", // Monday, >28 days after last history entry
                     daysOff: [],
-                    history: leapYearHistory,
+                    history: createFullBaseHistory("2028-02-01"),
                 },
             ]
 

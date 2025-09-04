@@ -10,6 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const addDayOffBtn = document.getElementById("add-day-off")
     const historyCheckbox = document.getElementById("history-checkbox")
     const historyContainer = document.getElementById("history-container")
+    const historyTextarea = document.getElementById("history-data")
+    const validationBox = document.getElementById("history-validation-box")
 
     const today = new Date()
     const yyyy = today.getFullYear()
@@ -30,7 +32,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
     historyCheckbox.addEventListener("change", () => {
         historyContainer.classList.toggle("hidden", !historyCheckbox.checked)
+        // Trigger validation when showing the box for the first time
+        if (historyCheckbox.checked) {
+            handleHistoryValidation()
+        } else {
+            validationBox.classList.add("hidden")
+        }
     })
+
+    // --- Live Validation Event Listener ---
+    historyTextarea.addEventListener("input", handleHistoryValidation)
+
+    function handleHistoryValidation() {
+        const text = historyTextarea.value
+        const { errors, uniqueGroupCount } = validateHistory(text)
+
+        if (text.trim() === "") {
+            validationBox.classList.add("hidden")
+            return
+        }
+
+        validationBox.classList.remove("hidden")
+        if (errors.length > 0) {
+            validationBox.innerHTML = `<ul>${errors
+                .map((e) => `<li>- ${e}</li>`)
+                .join("")}</ul>`
+            validationBox.className =
+                "mt-2 p-3 rounded-md text-sm bg-red-50 text-red-700"
+        } else {
+            validationBox.innerHTML = `✅ All checks pass. Found ${uniqueGroupCount} of 22 required unique groups.`
+            validationBox.className =
+                "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
+        }
+    }
 
     document
         .getElementById("days-off-container")
@@ -90,7 +124,7 @@ document.addEventListener("DOMContentLoaded", () => {
             } catch (error) {
                 console.error("Error generating schedule:", error)
                 alert(
-                    "An error occurred. Please check your inputs and try again."
+                    `An error occurred: ${error.message}. Please check your inputs and try again.`
                 )
             } finally {
                 document
@@ -102,6 +136,60 @@ document.addEventListener("DOMContentLoaded", () => {
                 generateBtn.disabled = false
             }
         }, 250)
+    }
+
+    function validateHistory(text) {
+        const errors = []
+        const lines = text.split("\n")
+        const uniqueGroups = new Set()
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim()
+            if (line === "") continue
+
+            const parts = line.split(",")
+            if (parts.length !== 3) {
+                errors.push(
+                    `<b>Line ${
+                        i + 1
+                    }:</b> Invalid format. Expected Date,Period,Group.`
+                )
+                continue // Can't validate other parts if format is wrong
+            }
+
+            const [date, periodStr, group] = parts.map((p) => p.trim())
+            const period = parseInt(periodStr, 10)
+
+            if (!dateRegex.test(date)) {
+                errors.push(
+                    `<b>Line ${
+                        i + 1
+                    }:</b> Invalid date format for '${date}'. Expected YYYY-MM-DD.`
+                )
+            }
+            if (isNaN(period)) {
+                errors.push(
+                    `<b>Line ${
+                        i + 1
+                    }:</b> Period '${periodStr}' is not a valid number.`
+                )
+            }
+            if (!group) {
+                errors.push(`<b>Line ${i + 1}:</b> Group name cannot be empty.`)
+            }
+
+            if (group && group.toUpperCase() !== "MU") {
+                uniqueGroups.add(group)
+            }
+        }
+
+        if (uniqueGroups.size !== 22 && text.trim() !== "") {
+            errors.push(
+                `<b>Overall:</b> Found ${uniqueGroups.size} unique groups. The schedule requires exactly <b>22</b> unique non-MU groups.`
+            )
+        }
+        return { errors, uniqueGroupCount: uniqueGroups.size }
     }
 
     function getScheduleParameters() {
@@ -126,6 +214,16 @@ document.addEventListener("DOMContentLoaded", () => {
             const historyText = document
                 .getElementById("history-data")
                 .value.trim()
+
+            // Submission-time validation
+            const { errors } = validateHistory(historyText)
+            if (errors.length > 0) {
+                alert(
+                    "There are errors in your history data. Please fix them before generating a schedule:\n\n- " +
+                        errors.join("\n- ").replace(/<b>|<\/b>/g, "")
+                )
+                return null
+            }
             if (!historyText) {
                 alert(
                     "Please paste the schedule history data when the checkbox is selected."
@@ -135,50 +233,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const parsedHistory = []
             const lines = historyText.split("\n")
-            const dateRegex = /^\d{4}-\d{2}-\d{2}$/
 
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim()
-                if (line === "") continue // Skip empty lines
+                if (line === "") continue
 
                 const parts = line.split(",")
-                if (parts.length !== 3) {
-                    alert(
-                        `Invalid history format on line ${
-                            i + 1
-                        }: Expected 3 comma-separated values (YYYY-MM-DD,Period,Group).`
-                    )
-                    return null
-                }
-
                 const [date, periodStr, group] = parts.map((p) => p.trim())
                 const period = parseInt(periodStr, 10)
-
-                if (!dateRegex.test(date)) {
-                    alert(
-                        `Invalid date format on line ${
-                            i + 1
-                        }: '${date}'. Expected YYYY-MM-DD.`
-                    )
-                    return null
-                }
-                if (isNaN(period)) {
-                    alert(
-                        `Invalid period on line ${
-                            i + 1
-                        }: '${periodStr}'. Expected a number.`
-                    )
-                    return null
-                }
-                if (!group) {
-                    alert(
-                        `Missing group name on line ${
-                            i + 1
-                        }. Please provide a group.`
-                    )
-                    return null
-                }
-
                 parsedHistory.push({ date, period, group })
             }
             scheduleHistory = parsedHistory

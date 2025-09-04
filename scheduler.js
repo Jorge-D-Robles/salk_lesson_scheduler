@@ -45,11 +45,18 @@ class ScheduleBuilder {
             Array.isArray(scheduleHistory) &&
             scheduleHistory.length > 0
         ) {
-            // Infer the lesson groups from the provided history.
             const groupsFromHistory = new Set(
                 scheduleHistory.map((item) => item.group).filter(Boolean)
             )
-            groupsFromHistory.delete("MU") // "MU" is not a real group.
+            groupsFromHistory.delete("MU")
+
+            // --- NEW: Add server-side validation for the group count ---
+            if (groupsFromHistory.size !== 22) {
+                throw new Error(
+                    `History data must contain exactly 22 unique non-MU groups. Found ${groupsFromHistory.size}.`
+                )
+            }
+
             this.LESSON_GROUPS = [...groupsFromHistory]
         } else {
             // Fallback to default A-V groups if no history is provided.

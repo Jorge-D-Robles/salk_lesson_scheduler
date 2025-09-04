@@ -152,14 +152,20 @@
                                 <textarea
                                     id="history-data"
                                     rows="10"
-                                    placeholder="Format each line as: YYYY-MM-DD,Period,Group&#10;e.g.,&#10;2025-08-11,1,Flutes&#10;2025-08-11,4,Clarinets&#10;2025-08-12,1,Oboes"
                                     class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 font-mono text-sm"
                                 ></textarea>
                                 <p class="mt-2 text-xs text-gray-500">
-                                    Each lesson from the previous schedule
-                                    should be on its own line. Do not include
-                                    the "Pd" prefix for period numbers.
+                                    Format:
+                                    <code class="font-semibold text-gray-600"
+                                        >YYYY-MM-DD,Period,Group</code
+                                    >
+                                    (e.g., 2025-08-11,1,Flutes). "MU" groups do
+                                    not count toward the 22 unique groups.
                                 </p>
+                                <div
+                                    id="history-validation-box"
+                                    class="hidden mt-2 p-3 rounded-md text-sm"
+                                ></div>
                             </div>
                         </div>
 
