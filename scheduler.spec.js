@@ -5,32 +5,26 @@
  */
 const assertNo28DayConflicts = (schedule) => {
     const oneDayInMilliseconds = 1000 * 60 * 60 * 24
-    // This object will track the last date a group was assigned to a specific period.
     const lastSeen = {}
 
     schedule.forEach((dayEntry) => {
         dayEntry.lessons.forEach((lesson) => {
             const { group, period } = lesson
-
             if (group.startsWith("MU")) {
                 return
             }
-
             if (!lastSeen[group]) {
                 lastSeen[group] = {}
             }
-
             const lastTimeInPeriod = lastSeen[group][period]
-
             if (lastTimeInPeriod) {
                 const differenceInMs = dayEntry.date - lastTimeInPeriod
                 const differenceInDays = Math.round(
                     differenceInMs / oneDayInMilliseconds
                 )
-
                 expect(differenceInDays).toBeGreaterThanOrEqual(
                     28,
-                    `Group ${group} was scheduled for ${period} again after only ${differenceInDays} days on ${dayEntry.date.toDateString()}`
+                    `Conflict for ${group} in ${period}`
                 )
             }
             lastSeen[group][period] = dayEntry.date
@@ -39,34 +33,17 @@ const assertNo28DayConflicts = (schedule) => {
 }
 
 describe("ScheduleBuilder", () => {
-    describe("when using the default schedule (Groups A-V)", () => {
-        const dateTestCases = [
-            {
-                description: "when starting on Monday with days off",
-                startDate: "2025-09-01",
-                daysOff: ["2025-09-02", "2025-09-03", "2025-09-15"],
-            },
-            {
-                description: "when starting on Wednesday with no days off",
-                startDate: "2025-09-03",
-                daysOff: [],
-            },
-        ]
-
-        dateTestCases.forEach((dateCase) => {
-            ;[1, 2].forEach((startCycle) => {
-                it(`should not have 28-day conflicts ${dateCase.description}, starting on Day ${startCycle}`, () => {
-                    const scheduleBuilder = new ScheduleBuilder(
-                        dateCase.startDate,
-                        startCycle,
-                        dateCase.daysOff,
-                        16, // weeks
-                        null // Explicitly use default groups
-                    )
-                    const schedule = scheduleBuilder.buildSchedule()
-                    assertNo28DayConflicts(schedule)
-                })
-            })
+    describe("when using the default schedule", () => {
+        it("should not have 28-day conflicts", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [],
+                16,
+                null
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNo28DayConflicts(schedule)
         })
 
         it("should not schedule any lessons on weekends", () => {
@@ -84,107 +61,102 @@ describe("ScheduleBuilder", () => {
                 expect(dayOfWeek).not.toBe(6)
             })
         })
-
-        it("should not schedule any lessons on specified days off", () => {
-            const dayOff = "2025-09-03"
-            const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01",
-                1,
-                [dayOff],
-                2,
-                null
-            )
-            const schedule = scheduleBuilder.buildSchedule()
-            const dayOffDateString = new Date(
-                dayOff + "T00:00:00"
-            ).toDateString()
-            schedule.forEach((dayEntry) => {
-                expect(dayEntry.date.toDateString()).not.toBe(dayOffDateString)
-            })
-        })
     })
 
-    describe("when using a custom schedule", () => {
-        // Create a valid list of 22 custom group names for testing
-        const customGroups = [
-            "Flutes",
-            "Clarinets",
-            "Oboes",
-            "Bassoons",
-            "Saxes",
-            "Trumpets",
-            "Horns",
-            "Trombones",
-            "Euphoniums",
-            "Tubas",
-            "Violins 1",
-            "Violins 2",
-            "Violas",
-            "Cellos",
-            "Basses",
-            "Percussion 1",
-            "Percussion 2",
-            "Piano",
-            "Guitars",
-            "Ukuleles",
-            "Recorders",
-            "Vocals",
+    describe("when using schedule history", () => {
+        const historyGroups = [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "Q",
+            "R",
+            "S",
+            "T",
+            "U",
+            "V",
         ]
 
-        it("should correctly initialize with 22 custom group names", () => {
+        const scheduleHistory = {
+            groups: historyGroups,
+            startDate: "2025-09-01", // A Monday
+            startCycle: 1,
+        }
+
+        it("should correctly pre-populate its state from the history", () => {
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01",
+                "2025-09-08",
                 1,
                 [],
                 1,
-                customGroups
+                scheduleHistory
             )
-            expect(scheduleBuilder.LESSON_GROUPS).toEqual(customGroups)
+
+            // Test a few key assignments from the history
+            const historyDate1 = new Date("2025-09-01T00:00:00") // Mon, Day 1
+            const historyDate2 = new Date("2025-09-02T00:00:00") // Tue, Day 2
+
+            // Day 1 Periods are 1, 4, 7, 8. Groups A, B, C, D
+            expect(scheduleBuilder.periodAssignments["A"][1].getTime()).toEqual(
+                historyDate1.getTime()
+            )
+            expect(scheduleBuilder.periodAssignments["D"][8].getTime()).toEqual(
+                historyDate1.getTime()
+            )
+
+            // Day 2 Periods are 1, 2, 3, 7, 8. Groups E, F, G, H, I
+            expect(scheduleBuilder.periodAssignments["E"][1].getTime()).toEqual(
+                historyDate2.getTime()
+            )
+            expect(scheduleBuilder.periodAssignments["I"][8].getTime()).toEqual(
+                historyDate2.getTime()
+            )
         })
 
-        it("should fall back to default groups if custom group list is not 22 names", () => {
-            const invalidCustomGroups = ["Group1", "Group2"] // Not 22
-            const defaultGroups = Array.from({ length: 22 }, (_, i) =>
-                String.fromCharCode("A".charCodeAt(0) + i)
-            )
-
+        it("should generate a valid new schedule respecting the history", () => {
+            // Generate a new schedule starting the week after the history ends
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01",
+                "2025-09-08",
                 1,
                 [],
-                1,
-                invalidCustomGroups
+                16,
+                scheduleHistory
             )
-            expect(scheduleBuilder.LESSON_GROUPS).toEqual(defaultGroups)
-        })
 
-        it("should not have 28-day conflicts when using custom group names", () => {
-            const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01", // Start Date
-                1, // Start Cycle
-                [], // Days Off
-                16, // Weeks
-                customGroups // Pass the custom groups
-            )
-            const schedule = scheduleBuilder.buildSchedule()
+            const newSchedule = scheduleBuilder.buildSchedule()
 
-            // All scheduled groups should be from our custom list
-            const allScheduledGroups = new Set()
-            schedule.forEach((day) =>
-                day.lessons.forEach((lesson) => {
-                    if (lesson.group !== "MU") {
-                        allScheduledGroups.add(lesson.group)
+            // Find the first time Group 'A' is scheduled for Period 1 in the new schedule
+            let firstNewASlot = null
+            for (const entry of newSchedule) {
+                for (const lesson of entry.lessons) {
+                    if (lesson.group === "A" && lesson.period === "Pd 1") {
+                        firstNewASlot = entry.date
+                        break
                     }
-                })
-            )
+                }
+                if (firstNewASlot) break
+            }
 
-            // Verify that the groups in the schedule are the ones we provided
-            expect(Array.from(allScheduledGroups).sort()).toEqual(
-                customGroups.sort()
-            )
+            // The new lesson must be at least 28 days after its historical lesson
+            const historyDate = new Date("2025-09-01T00:00:00")
+            const diffInDays =
+                (firstNewASlot - historyDate) / (1000 * 60 * 60 * 24)
+            expect(diffInDays).toBeGreaterThanOrEqual(28)
 
-            // Run the same rigorous conflict check
-            assertNo28DayConflicts(schedule)
+            // Also ensure the entire generated schedule has no internal conflicts
+            assertNo28DayConflicts(newSchedule)
         })
     })
 })

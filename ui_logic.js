@@ -8,12 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const rerollBtn = document.getElementById("reroll-btn")
     const saveCsvBtn = document.getElementById("save-csv-btn")
     const addDayOffBtn = document.getElementById("add-day-off")
-    const customScheduleCheckbox = document.getElementById(
-        "custom-schedule-checkbox"
-    )
-    const customScheduleContainer = document.getElementById(
-        "custom-schedule-container"
-    )
+    const historyCheckbox = document.getElementById("history-checkbox")
+    const historyContainer = document.getElementById("history-container")
 
     const today = new Date()
     const yyyy = today.getFullYear()
@@ -32,11 +28,8 @@ document.addEventListener("DOMContentLoaded", () => {
         container.appendChild(newDayOff)
     })
 
-    customScheduleCheckbox.addEventListener("change", () => {
-        customScheduleContainer.classList.toggle(
-            "hidden",
-            !customScheduleCheckbox.checked
-        )
+    historyCheckbox.addEventListener("change", () => {
+        historyContainer.classList.toggle("hidden", !historyCheckbox.checked)
     })
 
     document
@@ -54,14 +47,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     rerollBtn.addEventListener("click", () => {
         if (lastScheduleParams.startDate) {
-            const { startDate, dayCycle, daysOff, weeks, customGroups } =
+            const { startDate, dayCycle, daysOff, weeks, scheduleHistory } =
                 lastScheduleParams
             const scheduleBuilder = new ScheduleBuilder(
                 startDate,
                 dayCycle,
                 daysOff,
                 weeks,
-                customGroups
+                scheduleHistory
             )
             const schedule = scheduleBuilder.buildSchedule()
             displaySchedule(schedule)
@@ -83,14 +76,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (!params) return
                 lastScheduleParams = params
 
-                const { startDate, dayCycle, daysOff, weeks, customGroups } =
+                const { startDate, dayCycle, daysOff, weeks, scheduleHistory } =
                     params
                 const scheduleBuilder = new ScheduleBuilder(
                     startDate,
                     dayCycle,
                     daysOff,
                     weeks,
-                    customGroups
+                    scheduleHistory
                 )
                 const schedule = scheduleBuilder.buildSchedule()
                 displaySchedule(schedule)
@@ -124,50 +117,45 @@ document.addEventListener("DOMContentLoaded", () => {
             .filter(Boolean)
 
         if (!startDate || isNaN(dayCycle) || isNaN(weeks)) {
-            alert(
-                "Please fill in all required fields: Start Date, Day Cycle, and Weeks."
-            )
-            return null
-        }
-        if (dayCycle < 1 || dayCycle > 2) {
-            alert("Starting Day Cycle must be 1 or 2.")
-            return null
-        }
-        if (weeks < 1 || weeks > 52) {
-            alert("Number of weeks must be between 1 and 52.")
+            alert("Please fill in all required fields for the new schedule.")
             return null
         }
 
-        let customGroups = null
-        if (customScheduleCheckbox.checked) {
-            const customGroupInputs = document.querySelectorAll(
-                ".custom-group-input"
+        let scheduleHistory = null
+        if (historyCheckbox.checked) {
+            const historyGroups = document
+                .getElementById("history-groups")
+                .value.trim()
+                .split(/\s+/)
+                .filter(Boolean)
+            const historyStartDate =
+                document.getElementById("history-start-date").value
+            const historyDayCycle = parseInt(
+                document.getElementById("history-day-cycle").value,
+                10
             )
-            const allCustomGroups = []
-            customGroupInputs.forEach((input) => {
-                const groups = input.value
-                    .split(",")
-                    .map((g) => g.trim())
-                    .filter(Boolean)
-                allCustomGroups.push(...groups)
-            })
 
-            if (allCustomGroups.length !== 22) {
+            if (historyGroups.length !== 22) {
                 alert(
-                    `Custom schedule requires exactly 22 group names. You provided ${allCustomGroups.length}.`
+                    `Schedule history requires exactly 22 group names separated by spaces. You provided ${historyGroups.length}.`
                 )
                 return null
             }
-            customGroups = allCustomGroups
+            if (!historyStartDate || isNaN(historyDayCycle)) {
+                alert(
+                    "Please provide a valid start date and day cycle for the schedule history."
+                )
+                return null
+            }
+
+            scheduleHistory = {
+                groups: historyGroups,
+                startDate: historyStartDate,
+                startCycle: historyDayCycle,
+            }
         }
 
-        return {
-            startDate,
-            dayCycle,
-            daysOff,
-            weeks,
-            customGroups,
-        }
+        return { startDate, dayCycle, daysOff, weeks, scheduleHistory }
     }
 
     function displaySchedule(schedule) {
@@ -220,13 +208,11 @@ document.addEventListener("DOMContentLoaded", () => {
     function exportTableToCSV(filename) {
         const csv = []
         const rows = document.querySelectorAll("#schedule-table tr")
-
         const header = []
         document
             .querySelectorAll("#schedule-table th")
             .forEach((th) => header.push(`"${th.innerText}"`))
         csv.push(header.join(","))
-
         rows.forEach((row) => {
             if (row.querySelector('td[colspan="11"]')) {
                 return
@@ -238,7 +224,6 @@ document.addEventListener("DOMContentLoaded", () => {
             })
             csv.push(rowData.join(","))
         })
-
         downloadCSV(csv.join("\n"), filename)
     }
 
