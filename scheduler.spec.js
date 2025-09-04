@@ -44,8 +44,8 @@ const assertNo28DayConflicts = (schedule) => {
 }
 
 describe("ScheduleBuilder", () => {
-    // A list of test cases for the 28-day conflict rule.
-    const conflictTestCases = [
+    // A list of date-based scenarios for the 28-day conflict rule.
+    const dateTestCases = [
         {
             description: "when starting on Monday with days off",
             startDate: "2025-09-01", // A Monday
@@ -68,19 +68,21 @@ describe("ScheduleBuilder", () => {
         },
     ]
 
-    // Dynamically create a test for each case in the list above.
-    conflictTestCases.forEach((testCase) => {
-        it(`should not schedule a group for the same period within 28 days ${testCase.description}`, () => {
-            const scheduleBuilder = new ScheduleBuilder(
-                testCase.startDate,
-                1, // startCycle
-                testCase.daysOff,
-                16 // weeks
-            )
+    // Dynamically create a test for each date scenario, permuted with both Day 1 and Day 2 start cycles.
+    dateTestCases.forEach((dateCase) => {
+        ;[1, 2].forEach((startCycle) => {
+            it(`should not schedule a group for the same period within 28 days ${dateCase.description}, starting on Day ${startCycle}`, () => {
+                const scheduleBuilder = new ScheduleBuilder(
+                    dateCase.startDate,
+                    startCycle,
+                    dateCase.daysOff,
+                    16 // weeks
+                )
 
-            const schedule = scheduleBuilder.buildSchedule()
+                const schedule = scheduleBuilder.buildSchedule()
 
-            assertNo28DayConflicts(schedule)
+                assertNo28DayConflicts(schedule)
+            })
         })
     })
 
@@ -102,9 +104,9 @@ describe("ScheduleBuilder", () => {
     })
 
     it("should not schedule any lessons on specified days off", () => {
-        const dayOff = "2025-09-10" // A Wednesday
+        const dayOff = "2025-09-03" // A Wednesday
         const scheduleBuilder = new ScheduleBuilder(
-            "2025-09-08",
+            "2025-09-01",
             1,
             [dayOff],
             2
