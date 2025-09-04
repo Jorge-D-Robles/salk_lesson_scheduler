@@ -56,8 +56,23 @@ describe("ScheduleBuilder", () => {
                 daysOff: ["2025-09-02", "2025-09-10", "2025-09-15"],
             },
             {
+                description: "when starting on a Tuesday with no days off",
+                startDate: "2025-09-02",
+                daysOff: [],
+            },
+            {
                 description: "when starting on a Wednesday with no days off",
                 startDate: "2025-09-03",
+                daysOff: [],
+            },
+            {
+                description: "when starting on a Thursday with no days off",
+                startDate: "2025-09-04",
+                daysOff: [],
+            },
+            {
+                description: "when starting on a Friday with no days off",
+                startDate: "2025-09-05",
                 daysOff: [],
             },
         ]
