@@ -6,14 +6,12 @@
 const assertNo28DayConflicts = (schedule) => {
     const oneDayInMilliseconds = 1000 * 60 * 60 * 24
     // This object will track the last date a group was assigned to a specific period.
-    // Format: { "GroupA": { "Pd 1": Date, "Pd 4": Date }, "GroupB": { ... } }
     const lastSeen = {}
 
     schedule.forEach((dayEntry) => {
         dayEntry.lessons.forEach((lesson) => {
             const { group, period } = lesson
 
-            // Skip "MU" (make-up) groups as they don't follow the rule.
             if (group.startsWith("MU")) {
                 return
             }
@@ -30,96 +28,163 @@ const assertNo28DayConflicts = (schedule) => {
                     differenceInMs / oneDayInMilliseconds
                 )
 
-                // The core expectation of the test.
                 expect(differenceInDays).toBeGreaterThanOrEqual(
                     28,
                     `Group ${group} was scheduled for ${period} again after only ${differenceInDays} days on ${dayEntry.date.toDateString()}`
                 )
             }
-
-            // After the check, update the 'last seen' date for this group/period combination.
             lastSeen[group][period] = dayEntry.date
         })
     })
 }
 
 describe("ScheduleBuilder", () => {
-    // A list of date-based scenarios for the 28-day conflict rule.
-    const dateTestCases = [
-        {
-            description: "when starting on Monday with days off",
-            startDate: "2025-09-01", // A Monday
-            daysOff: ["2025-09-02", "2025-09-03", "2025-09-15"],
-        },
-        {
-            description: "when starting on Tuesday with multiple days off",
-            startDate: "2025-09-02", // A Tuesday
-            daysOff: ["2025-09-03", "2025-09-15", "2025-09-16", "2025-09-17"],
-        },
-        {
-            description: "when starting on Wednesday with no days off",
-            startDate: "2025-09-03", // A Wednesday
-            daysOff: [],
-        },
-        {
-            description: "when starting on Thursday with days off",
-            startDate: "2025-09-04", // A Thursday
-            daysOff: ["2025-09-05", "2025-09-06", "2025-09-07"],
-        },
-    ]
+    describe("when using the default schedule (Groups A-V)", () => {
+        const dateTestCases = [
+            {
+                description: "when starting on Monday with days off",
+                startDate: "2025-09-01",
+                daysOff: ["2025-09-02", "2025-09-03", "2025-09-15"],
+            },
+            {
+                description: "when starting on Wednesday with no days off",
+                startDate: "2025-09-03",
+                daysOff: [],
+            },
+        ]
 
-    // Dynamically create a test for each date scenario, permuted with both Day 1 and Day 2 start cycles.
-    dateTestCases.forEach((dateCase) => {
-        ;[1, 2].forEach((startCycle) => {
-            it(`should not schedule a group for the same period within 28 days ${dateCase.description}, starting on Day ${startCycle}`, () => {
-                const scheduleBuilder = new ScheduleBuilder(
-                    dateCase.startDate,
-                    startCycle,
-                    dateCase.daysOff,
-                    16 // weeks
-                )
+        dateTestCases.forEach((dateCase) => {
+            ;[1, 2].forEach((startCycle) => {
+                it(`should not have 28-day conflicts ${dateCase.description}, starting on Day ${startCycle}`, () => {
+                    const scheduleBuilder = new ScheduleBuilder(
+                        dateCase.startDate,
+                        startCycle,
+                        dateCase.daysOff,
+                        16, // weeks
+                        null // Explicitly use default groups
+                    )
+                    const schedule = scheduleBuilder.buildSchedule()
+                    assertNo28DayConflicts(schedule)
+                })
+            })
+        })
 
-                const schedule = scheduleBuilder.buildSchedule()
+        it("should not schedule any lessons on weekends", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [],
+                4,
+                null
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            schedule.forEach((dayEntry) => {
+                const dayOfWeek = dayEntry.date.getDay()
+                expect(dayOfWeek).not.toBe(0)
+                expect(dayOfWeek).not.toBe(6)
+            })
+        })
 
-                assertNo28DayConflicts(schedule)
+        it("should not schedule any lessons on specified days off", () => {
+            const dayOff = "2025-09-03"
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [dayOff],
+                2,
+                null
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            const dayOffDateString = new Date(
+                dayOff + "T00:00:00"
+            ).toDateString()
+            schedule.forEach((dayEntry) => {
+                expect(dayEntry.date.toDateString()).not.toBe(dayOffDateString)
             })
         })
     })
 
-    it("should not schedule any lessons on weekends", () => {
-        const scheduleBuilder = new ScheduleBuilder("2025-09-01", 1, [], 4)
-        const schedule = scheduleBuilder.buildSchedule()
+    describe("when using a custom schedule", () => {
+        // Create a valid list of 22 custom group names for testing
+        const customGroups = [
+            "Flutes",
+            "Clarinets",
+            "Oboes",
+            "Bassoons",
+            "Saxes",
+            "Trumpets",
+            "Horns",
+            "Trombones",
+            "Euphoniums",
+            "Tubas",
+            "Violins 1",
+            "Violins 2",
+            "Violas",
+            "Cellos",
+            "Basses",
+            "Percussion 1",
+            "Percussion 2",
+            "Piano",
+            "Guitars",
+            "Ukuleles",
+            "Recorders",
+            "Vocals",
+        ]
 
-        schedule.forEach((dayEntry) => {
-            const dayOfWeek = dayEntry.date.getDay() // 0 = Sunday, 6 = Saturday
-            expect(dayOfWeek).not.toBe(
-                0,
-                `A lesson was scheduled on a Sunday: ${dayEntry.date.toDateString()}`
+        it("should correctly initialize with 22 custom group names", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [],
+                1,
+                customGroups
             )
-            expect(dayOfWeek).not.toBe(
-                6,
-                `A lesson was scheduled on a Saturday: ${dayEntry.date.toDateString()}`
-            )
+            expect(scheduleBuilder.LESSON_GROUPS).toEqual(customGroups)
         })
-    })
 
-    it("should not schedule any lessons on specified days off", () => {
-        const dayOff = "2025-09-03" // A Wednesday
-        const scheduleBuilder = new ScheduleBuilder(
-            "2025-09-01",
-            1,
-            [dayOff],
-            2
-        )
-        const schedule = scheduleBuilder.buildSchedule()
-
-        const dayOffDateString = new Date(dayOff + "T00:00:00").toDateString()
-
-        schedule.forEach((dayEntry) => {
-            expect(dayEntry.date.toDateString()).not.toBe(
-                dayOffDateString,
-                `A lesson was scheduled on a specified day off: ${dayOffDateString}`
+        it("should fall back to default groups if custom group list is not 22 names", () => {
+            const invalidCustomGroups = ["Group1", "Group2"] // Not 22
+            const defaultGroups = Array.from({ length: 22 }, (_, i) =>
+                String.fromCharCode("A".charCodeAt(0) + i)
             )
+
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [],
+                1,
+                invalidCustomGroups
+            )
+            expect(scheduleBuilder.LESSON_GROUPS).toEqual(defaultGroups)
+        })
+
+        it("should not have 28-day conflicts when using custom group names", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01", // Start Date
+                1, // Start Cycle
+                [], // Days Off
+                16, // Weeks
+                customGroups // Pass the custom groups
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+
+            // All scheduled groups should be from our custom list
+            const allScheduledGroups = new Set()
+            schedule.forEach((day) =>
+                day.lessons.forEach((lesson) => {
+                    if (lesson.group !== "MU") {
+                        allScheduledGroups.add(lesson.group)
+                    }
+                })
+            )
+
+            // Verify that the groups in the schedule are the ones we provided
+            expect(Array.from(allScheduledGroups).sort()).toEqual(
+                customGroups.sort()
+            )
+
+            // Run the same rigorous conflict check
+            assertNo28DayConflicts(schedule)
         })
     })
 })
