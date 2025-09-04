@@ -32,15 +32,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     historyCheckbox.addEventListener("change", () => {
         historyContainer.classList.toggle("hidden", !historyCheckbox.checked)
-        // Trigger validation when showing the box for the first time
         if (historyCheckbox.checked) {
             handleHistoryValidation()
         } else {
             validationBox.classList.add("hidden")
         }
+        // Update button state whenever the checkbox changes
+        updateGenerateButtonState()
     })
 
-    // --- Live Validation Event Listener ---
     historyTextarea.addEventListener("input", handleHistoryValidation)
 
     function handleHistoryValidation() {
@@ -49,6 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (text.trim() === "") {
             validationBox.classList.add("hidden")
+            updateGenerateButtonState() // Update button state
             return
         }
 
@@ -64,6 +65,18 @@ document.addEventListener("DOMContentLoaded", () => {
             validationBox.className =
                 "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
         }
+        // Update button state after validation
+        updateGenerateButtonState()
+    }
+
+    function updateGenerateButtonState() {
+        if (!historyCheckbox.checked) {
+            generateBtn.disabled = false
+            return
+        }
+
+        const { errors } = validateHistory(historyTextarea.value)
+        generateBtn.disabled = errors.length > 0
     }
 
     document
@@ -133,7 +146,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 document
                     .getElementById("schedule-output")
                     .classList.remove("hidden")
-                generateBtn.disabled = false
+                // Re-enable the button based on the final valid state
+                updateGenerateButtonState()
             }
         }, 250)
     }
@@ -142,7 +156,13 @@ document.addEventListener("DOMContentLoaded", () => {
         const errors = []
         const lines = text.split("\n")
         const uniqueGroups = new Set()
+        const lessonMap = new Map() // For tracking duplicate lessons
         const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+
+        if (text.trim() === "") {
+            errors.push("<b>Overall:</b> History data cannot be empty.")
+            return { errors, uniqueGroupCount: 0 }
+        }
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim()
@@ -155,18 +175,20 @@ document.addEventListener("DOMContentLoaded", () => {
                         i + 1
                     }:</b> Invalid format. Expected Date,Period,Group.`
                 )
-                continue // Can't validate other parts if format is wrong
+                continue
             }
 
             const [date, periodStr, group] = parts.map((p) => p.trim())
             const period = parseInt(periodStr, 10)
 
+            let isLineWellFormed = true
             if (!dateRegex.test(date)) {
                 errors.push(
                     `<b>Line ${
                         i + 1
                     }:</b> Invalid date format for '${date}'. Expected YYYY-MM-DD.`
                 )
+                isLineWellFormed = false
             }
             if (isNaN(period)) {
                 errors.push(
@@ -174,9 +196,26 @@ document.addEventListener("DOMContentLoaded", () => {
                         i + 1
                     }:</b> Period '${periodStr}' is not a valid number.`
                 )
+                isLineWellFormed = false
             }
             if (!group) {
                 errors.push(`<b>Line ${i + 1}:</b> Group name cannot be empty.`)
+                isLineWellFormed = false
+            }
+
+            // --- NEW: Check for duplicate lessons ---
+            if (isLineWellFormed) {
+                const lessonKey = `${date},${period},${group}`
+                if (lessonMap.has(lessonKey)) {
+                    const originalLine = lessonMap.get(lessonKey)
+                    errors.push(
+                        `<b>Line ${
+                            i + 1
+                        }:</b> Duplicate lesson entry. This is the same as <b>line ${originalLine}</b>.`
+                    )
+                } else {
+                    lessonMap.set(lessonKey, i + 1)
+                }
             }
 
             if (group && group.toUpperCase() !== "MU") {
@@ -184,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        if (uniqueGroups.size !== 22 && text.trim() !== "") {
+        if (uniqueGroups.size !== 22) {
             errors.push(
                 `<b>Overall:</b> Found ${uniqueGroups.size} unique groups. The schedule requires exactly <b>22</b> unique non-MU groups.`
             )
@@ -221,12 +260,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 alert(
                     "There are errors in your history data. Please fix them before generating a schedule:\n\n- " +
                         errors.join("\n- ").replace(/<b>|<\/b>/g, "")
-                )
-                return null
-            }
-            if (!historyText) {
-                alert(
-                    "Please paste the schedule history data when the checkbox is selected."
                 )
                 return null
             }
@@ -328,4 +361,6 @@ document.addEventListener("DOMContentLoaded", () => {
         downloadLink.click()
         document.body.removeChild(downloadLink)
     }
+    // Set initial state of the button on page load
+    updateGenerateButtonState()
 })
