@@ -40,10 +40,8 @@ class ScheduleBuilder {
         this.DAY2_PERIODS = [1, 2, 3, 7, 8]
 
         if (scheduleHistory && scheduleHistory.groups.length === 22) {
-            // If history is provided, derive the groups from it
             this.LESSON_GROUPS = [...new Set(scheduleHistory.groups)]
         } else {
-            // Otherwise, fall back to default groups
             this.LESSON_GROUPS = Array.from({ length: 22 }, (_, i) =>
                 String.fromCharCode("A".charCodeAt(0) + i)
             )
@@ -52,7 +50,6 @@ class ScheduleBuilder {
         this.periodAssignments = {}
         this.LESSON_GROUPS.forEach((g) => (this.periodAssignments[g] = {}))
 
-        // Pre-populate assignments from history if provided
         if (scheduleHistory && scheduleHistory.groups.length === 22) {
             this._populateAssignmentsFromHistory(scheduleHistory)
         }
@@ -97,8 +94,6 @@ class ScheduleBuilder {
             currentDate.setDate(currentDate.getDate() + 1)
         }
     }
-
-    // ... The rest of the ScheduleBuilder class remains unchanged ...
 
     setupNextGroupCycle() {
         this.groupSets.push(this.groupSets.shift())
@@ -170,12 +165,16 @@ class ScheduleBuilder {
                         if (groupsForCycle.length === 0) {
                             groupsForCycle = this.setupNextGroupCycle()
                         }
+
+                        // Tier 1: Strict search on rotating pool
                         let assignment = this.findBestGroupForPeriod(
                             groupsForCycle,
                             currentDate,
                             period,
                             false
                         )
+
+                        // Tier 2: Strict search on full pool
                         if (assignment.group === "MU") {
                             const usedGroupsToday = entry.lessons.map(
                                 (l) => l.group
@@ -191,14 +190,25 @@ class ScheduleBuilder {
                                 false
                             )
                         }
+
+                        // Tier 3: Mercy search fallback (THE FIX IS HERE)
                         if (assignment.group === "MU") {
+                            // Widen the mercy search to ALL groups, not just the rotating ones.
+                            const usedGroupsToday = entry.lessons.map(
+                                (l) => l.group
+                            )
+                            const allAvailableGroups =
+                                this.LESSON_GROUPS.filter(
+                                    (g) => !usedGroupsToday.includes(g)
+                                )
                             assignment = this.findBestGroupForPeriod(
-                                groupsForCycle,
+                                allAvailableGroups,
                                 currentDate,
                                 period,
                                 true
                             )
                         }
+
                         if (assignment.group !== "MU") {
                             entry.addLesson(period, assignment.group)
                             this.periodAssignments[assignment.group][period] =

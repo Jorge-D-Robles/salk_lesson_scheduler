@@ -144,8 +144,8 @@ describe("ScheduleBuilder", () => {
                     "Recorders",
                     "Vocals", // Day 5 (3) -> Total 22
                 ],
-                startDate: "2025-09-01", // A Monday
-                startCycle: 1,
+                startDate: "2025-09-01", // Default, will be overridden in tests
+                startCycle: 1, // Default, will be overridden in tests
             }
         })
 
@@ -185,22 +185,57 @@ describe("ScheduleBuilder", () => {
             )
         })
 
-        it("should generate a valid new schedule that respects the historical constraints", function () {
-            const newScheduleStartDate = "2025-09-08" // The week after the history ends
-            const scheduleBuilder = new ScheduleBuilder(
-                newScheduleStartDate,
-                1,
-                [],
-                16,
-                this.customHistory
-            )
-            const newSchedule = scheduleBuilder.buildSchedule()
+        const historyTestCases = [
+            {
+                description: "when history starts on a Monday",
+                startDate: "2025-09-01",
+                newScheduleStart: "2025-09-08",
+            },
+            {
+                description: "when history starts on a Tuesday",
+                startDate: "2025-09-02",
+                newScheduleStart: "2025-09-08",
+            },
+            {
+                description: "when history starts on a Wednesday",
+                startDate: "2025-09-03",
+                newScheduleStart: "2025-09-08",
+            },
+            {
+                description: "when history starts on a Thursday",
+                startDate: "2025-09-04",
+                newScheduleStart: "2025-09-08",
+            },
+            {
+                description: "when history starts on a Friday",
+                startDate: "2025-09-05",
+                newScheduleStart: "2025-09-08",
+            },
+        ]
 
-            // This ensures the new schedule is checked against the pre-populated history.
-            assertNo28DayConflicts(
-                newSchedule,
-                scheduleBuilder.periodAssignments
-            )
+        historyTestCases.forEach((testCase) => {
+            ;[1, 2].forEach((startCycle) => {
+                it(`should have no 28-day conflicts ${testCase.description}, starting on Day ${startCycle}`, function () {
+                    // Configure the history for this specific test case
+                    this.customHistory.startDate = testCase.startDate
+                    this.customHistory.startCycle = startCycle
+
+                    const scheduleBuilder = new ScheduleBuilder(
+                        testCase.newScheduleStart,
+                        1, // Always start the new schedule on a Day 1 cycle for consistency
+                        [], // No days off in this test for simplicity
+                        16, // weeks
+                        this.customHistory
+                    )
+                    const schedule = scheduleBuilder.buildSchedule()
+
+                    // The crucial assertion: check the new schedule against the pre-populated history
+                    assertNo28DayConflicts(
+                        schedule,
+                        scheduleBuilder.periodAssignments
+                    )
+                })
+            })
         })
 
         it("should fall back to default groups if history groups are not 22 names", function () {
@@ -220,9 +255,7 @@ describe("ScheduleBuilder", () => {
                 invalidHistory
             )
 
-            // It should ignore the invalid history and use the default A-V groups.
             expect(scheduleBuilder.LESSON_GROUPS).toEqual(defaultGroups)
-            // Its internal assignments should be empty, as the history was ignored.
             expect(scheduleBuilder.periodAssignments["Group1"]).toBeUndefined()
         })
 
