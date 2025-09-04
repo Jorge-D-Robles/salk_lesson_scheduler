@@ -37,7 +37,6 @@ document.addEventListener("DOMContentLoaded", () => {
         } else {
             validationBox.classList.add("hidden")
         }
-        // Update button state whenever the checkbox changes
         updateGenerateButtonState()
     })
 
@@ -49,7 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (text.trim() === "") {
             validationBox.classList.add("hidden")
-            updateGenerateButtonState() // Update button state
+            updateGenerateButtonState()
             return
         }
 
@@ -65,7 +64,6 @@ document.addEventListener("DOMContentLoaded", () => {
             validationBox.className =
                 "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
         }
-        // Update button state after validation
         updateGenerateButtonState()
     }
 
@@ -146,7 +144,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 document
                     .getElementById("schedule-output")
                     .classList.remove("hidden")
-                // Re-enable the button based on the final valid state
                 updateGenerateButtonState()
             }
         }, 250)
@@ -154,72 +151,72 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function validateHistory(text) {
         const errors = []
-        const lines = text.split("\n")
+        const lines = text.split("\n").filter((line) => line.trim() !== "")
         const uniqueGroups = new Set()
-        const lessonMap = new Map() // For tracking duplicate lessons
-        const dateRegex = /^\d{4}-\d{2}-\d{2}$/
 
         if (text.trim() === "") {
             errors.push("<b>Overall:</b> History data cannot be empty.")
             return { errors, uniqueGroupCount: 0 }
         }
 
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim()
-            if (line === "") continue
+        const dataLines =
+            lines.length > 0 && lines[0].toLowerCase().includes("date")
+                ? lines.slice(1)
+                : lines
 
-            const parts = line.split(",")
-            if (parts.length !== 3) {
+        if (dataLines.length === 0) {
+            errors.push("<b>Overall:</b> No data rows found in the CSV paste.")
+            return { errors, uniqueGroupCount: 0 }
+        }
+
+        for (let i = 0; i < dataLines.length; i++) {
+            const line = dataLines[i]
+            const columns = line
+                .split(",")
+                .map((col) => col.trim().replace(/"/g, ""))
+
+            if (columns.length < 3 || columns.length % 2 === 0) {
                 errors.push(
                     `<b>Line ${
                         i + 1
-                    }:</b> Invalid format. Expected Date,Period,Group.`
+                    }:</b> Invalid number of columns. Each row should have a date and pairs of Period/Group.`
                 )
                 continue
             }
 
-            const [date, periodStr, group] = parts.map((p) => p.trim())
-            const period = parseInt(periodStr, 10)
-
-            let isLineWellFormed = true
-            if (!dateRegex.test(date)) {
+            const dateStr = columns[0]
+            if (isNaN(new Date(dateStr).getTime())) {
                 errors.push(
-                    `<b>Line ${
-                        i + 1
-                    }:</b> Invalid date format for '${date}'. Expected YYYY-MM-DD.`
+                    `<b>Line ${i + 1}:</b> Could not parse date '${dateStr}'.`
                 )
-                isLineWellFormed = false
-            }
-            if (isNaN(period)) {
-                errors.push(
-                    `<b>Line ${
-                        i + 1
-                    }:</b> Period '${periodStr}' is not a valid number.`
-                )
-                isLineWellFormed = false
-            }
-            if (!group) {
-                errors.push(`<b>Line ${i + 1}:</b> Group name cannot be empty.`)
-                isLineWellFormed = false
+                continue
             }
 
-            // --- NEW: Check for duplicate lessons ---
-            if (isLineWellFormed) {
-                const lessonKey = `${date},${period},${group}`
-                if (lessonMap.has(lessonKey)) {
-                    const originalLine = lessonMap.get(lessonKey)
+            for (let j = 1; j < columns.length; j += 2) {
+                const periodStr = columns[j]
+                const group = columns[j + 1]
+
+                if (!periodStr && !group) continue
+
+                const period = parseInt(periodStr.replace(/\D/g, ""), 10)
+
+                if (isNaN(period)) {
                     errors.push(
-                        `<b>Line ${
-                            i + 1
-                        }:</b> Duplicate lesson entry. This is the same as <b>line ${originalLine}</b>.`
+                        `<b>Line ${i + 1}, Column ${
+                            j + 1
+                        }:</b> Invalid period '${periodStr}'.`
                     )
-                } else {
-                    lessonMap.set(lessonKey, i + 1)
                 }
-            }
 
-            if (group && group.toUpperCase() !== "MU") {
-                uniqueGroups.add(group)
+                if (!group) {
+                    errors.push(
+                        `<b>Line ${i + 1}, Column ${
+                            j + 2
+                        }:</b> Group name is missing.`
+                    )
+                } else if (group.toUpperCase() !== "MU") {
+                    uniqueGroups.add(group)
+                }
             }
         }
 
@@ -254,7 +251,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 .getElementById("history-data")
                 .value.trim()
 
-            // Submission-time validation
             const { errors } = validateHistory(historyText)
             if (errors.length > 0) {
                 alert(
@@ -265,16 +261,40 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             const parsedHistory = []
-            const lines = historyText.split("\n")
+            let lines = historyText.split("\n")
+            if (lines.length > 0 && lines[0].toLowerCase().includes("date")) {
+                lines.shift()
+            }
 
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim()
-                if (line === "") continue
+            for (const line of lines) {
+                if (line.trim() === "") continue
 
-                const parts = line.split(",")
-                const [date, periodStr, group] = parts.map((p) => p.trim())
-                const period = parseInt(periodStr, 10)
-                parsedHistory.push({ date, period, group })
+                const columns = line
+                    .split(",")
+                    .map((col) => col.trim().replace(/"/g, ""))
+                const dateObj = new Date(columns[0])
+                const yyyy = dateObj.getFullYear()
+                const mm = String(dateObj.getMonth() + 1).padStart(2, "0")
+                const dd = String(dateObj.getDate()).padStart(2, "0")
+                const formattedDate = `${yyyy}-${mm}-${dd}`
+
+                for (let i = 1; i < columns.length; i += 2) {
+                    const periodStr = columns[i]
+                    const group = columns[i + 1]
+                    if (periodStr && group) {
+                        const period = parseInt(
+                            periodStr.replace(/\D/g, ""),
+                            10
+                        )
+                        if (!isNaN(period)) {
+                            parsedHistory.push({
+                                date: formattedDate,
+                                period,
+                                group,
+                            })
+                        }
+                    }
+                }
             }
             scheduleHistory = parsedHistory
         }
