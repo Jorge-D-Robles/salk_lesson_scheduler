@@ -47,6 +47,44 @@ const assertNo28DayConflicts = (schedule, initialAssignments = {}) => {
     })
 }
 
+/**
+ * Helper function to assert that no group is scheduled more than once in the same calendar week (Mon-Fri).
+ * @param {Array<ScheduleEntry>} schedule The generated schedule to test.
+ */
+const assertNoWeeklyConflicts = (schedule) => {
+    if (schedule.length === 0) return
+
+    let weeklyGroups = new Set()
+    // Initialize weekStartDate to the first day of the schedule to handle schedules that don't start on a Monday.
+    let weekStartDate = new Date(schedule[0].date)
+
+    schedule.forEach((dayEntry) => {
+        const currentDate = dayEntry.date
+        // If it's a Monday, this is the start of a new week.
+        if (currentDate.getDay() === 1) {
+            weeklyGroups.clear()
+            weekStartDate = new Date(currentDate)
+        }
+
+        dayEntry.lessons.forEach((lesson) => {
+            const { group } = lesson
+            // "MU" (Make-Up) groups are ignored as they aren't real assignments.
+            if (group === "MU") {
+                return
+            }
+
+            // Assert that the group has not been seen before in the current week.
+            expect(weeklyGroups.has(group)).toBe(
+                false,
+                `Weekly Conflict: Group '${group}' was scheduled twice in the week of ${weekStartDate.toDateString()}. A second time on ${currentDate.toDateString()}.`
+            )
+
+            // Add the group to the set for the current week.
+            weeklyGroups.add(group)
+        })
+    })
+}
+
 describe("ScheduleBuilder", () => {
     describe("Default Schedule (No History)", () => {
         const dateTestCases = [
@@ -285,6 +323,53 @@ describe("ScheduleBuilder", () => {
             expect(scheduleBuilder.LESSON_GROUPS.sort()).toEqual(
                 this.customHistory.groups.sort()
             )
+        })
+    })
+
+    // --- NEW TEST SUITE ---
+    describe("Weekly Scheduling Rules", () => {
+        it("should not schedule a group more than once in a week with no days off", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01", // Monday
+                1,
+                [],
+                16
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNoWeeklyConflicts(schedule)
+        })
+
+        it("should not schedule a group more than once in a week with one day off (Wednesday)", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01", // Monday
+                1,
+                ["2025-09-03"], // Wednesday Off
+                16
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNoWeeklyConflicts(schedule)
+        })
+
+        it("should not schedule a group more than once in a week with two days off (Tue/Thu)", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01", // Monday
+                1,
+                ["2025-09-02", "2025-09-04"], // Tuesday & Thursday Off
+                16
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNoWeeklyConflicts(schedule)
+        })
+
+        it("should not schedule a group more than once in a week with three days off (Mon/Wed/Fri)", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01", // Monday
+                1,
+                ["2025-09-01", "2025-09-03", "2025-09-05"], // Mon, Wed, Fri Off
+                16
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNoWeeklyConflicts(schedule)
         })
     })
 })
