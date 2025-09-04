@@ -168,165 +168,118 @@ describe("ScheduleBuilder", () => {
         })
     })
 
-    describe("Schedule with History", () => {
-        // By using beforeEach, we guarantee that `this.customHistory` is a fresh,
-        // valid object before every single test in this suite runs.
-        beforeEach(function () {
-            this.customHistory = {
-                groups: [
-                    "Flutes",
-                    "Clarinets",
-                    "Oboes",
-                    "Bassoons", // Day 1 (4)
-                    "Saxes",
-                    "Trumpets",
-                    "Horns",
-                    "Trombones",
-                    "Euphoniums", // Day 2 (5)
-                    "Tubas",
-                    "Violins1",
-                    "Violins2",
-                    "Violas",
-                    "Cellos", // Day 3 (5)
-                    "Basses",
-                    "Percussion1",
-                    "Percussion2",
-                    "Piano",
-                    "Guitars", // Day 4 (5)
-                    "Ukuleles",
-                    "Recorders",
-                    "Vocals", // Day 5 (3) -> Total 22
-                ],
-                startDate: "2025-09-01", // Default, will be overridden in tests
-                startCycle: 1, // Default, will be overridden in tests
-            }
+    // --- NEW: Boundary and Input Validation Tests ---
+    describe("Boundary and Input Validation", () => {
+        it("should correctly start on the next Monday if the start date is a weekend", () => {
+            // Saturday, September 6, 2025
+            const scheduleBuilder = new ScheduleBuilder("2025-09-06", 1, [], 1)
+            const schedule = scheduleBuilder.buildSchedule()
+            // Expect the first scheduled day to be Monday, September 8, 2025
+            expect(schedule[0].date.getDay()).toBe(1) // 1 = Monday
+            expect(schedule[0].date.getDate()).toBe(8)
         })
 
-        it("should correctly pre-populate its state from the provided history", function () {
-            const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-08",
-                1,
-                [],
-                1,
-                this.customHistory
-            )
-
-            const assignments = scheduleBuilder.periodAssignments
-            const historyDate_Day1 = new Date("2025-09-01T00:00:00")
-            const historyDate_Day2 = new Date("2025-09-02T00:00:00")
-            const historyDate_Day3 = new Date("2025-09-03T00:00:00")
-
-            // Day 1 (cycle 1 -> periods 1, 4, 7, 8)
-            expect(assignments["Flutes"][1].getTime()).toEqual(
-                historyDate_Day1.getTime()
-            )
-            expect(assignments["Bassoons"][8].getTime()).toEqual(
-                historyDate_Day1.getTime()
-            )
-
-            // Day 2 (cycle 2 -> periods 1, 2, 3, 7, 8)
-            expect(assignments["Saxes"][1].getTime()).toEqual(
-                historyDate_Day2.getTime()
-            )
-            expect(assignments["Euphoniums"][8].getTime()).toEqual(
-                historyDate_Day2.getTime()
-            )
-
-            // Day 3 (cycle 3 -> periods 1, 4, 7, 8)
-            expect(assignments["Tubas"][1].getTime()).toEqual(
-                historyDate_Day3.getTime()
-            )
-        })
-
-        const historyTestCases = [
-            {
-                description: "when history starts on a Monday",
-                startDate: "2025-09-01",
-                newScheduleStart: "2025-09-08",
-            },
-            {
-                description: "when history starts on a Tuesday",
-                startDate: "2025-09-02",
-                newScheduleStart: "2025-09-10",
-            },
-            {
-                description: "when history starts on a Wednesday",
-                startDate: "2025-09-03",
-                newScheduleStart: "2025-09-11",
-            },
-            {
-                description: "when history starts on a Thursday",
-                startDate: "2025-09-04",
-                newScheduleStart: "2025-09-12",
-            },
-            {
-                description: "when history starts on a Friday",
-                startDate: "2025-09-05",
-                newScheduleStart: "2025-09-13",
-            },
-        ]
-
-        historyTestCases.forEach((testCase) => {
-            ;[1, 2].forEach((startCycle) => {
-                it(`should have no 28-day conflicts ${testCase.description}, starting on Day ${startCycle}`, function () {
-                    // Configure the history for this specific test case
-                    this.customHistory.startDate = testCase.startDate
-                    this.customHistory.startCycle = startCycle
-
-                    const scheduleBuilder = new ScheduleBuilder(
-                        testCase.newScheduleStart,
-                        1, // Always start the new schedule on a Day 1 cycle for consistency
-                        [], // No days off in this test for simplicity
-                        16, // weeks
-                        this.customHistory
-                    )
-                    const schedule = scheduleBuilder.buildSchedule()
-
-                    // The crucial assertion: check the new schedule against the pre-populated history
-                    assertNo28DayConflicts(
-                        schedule,
-                        scheduleBuilder.periodAssignments
-                    )
-                })
-            })
-        })
-
-        it("should fall back to default groups if history groups are not 22 names", function () {
-            const invalidHistory = {
-                groups: ["Group1", "Group2"], // Invalid length
-                startDate: "2025-09-01",
-                startCycle: 1,
-            }
-            const defaultGroups = Array.from({ length: 22 }, (_, i) =>
-                String.fromCharCode("A".charCodeAt(0) + i)
-            )
-            const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-08",
-                1,
-                [],
-                1,
-                invalidHistory
-            )
-
-            expect(scheduleBuilder.LESSON_GROUPS).toEqual(defaultGroups)
-            expect(scheduleBuilder.periodAssignments["Group1"]).toBeUndefined()
-        })
-
-        it("should correctly identify all groups from the history", function () {
-            const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-08",
-                1,
-                [],
-                1,
-                this.customHistory
-            )
-            expect(scheduleBuilder.LESSON_GROUPS.sort()).toEqual(
-                this.customHistory.groups.sort()
-            )
+        it("should maintain correctness when scheduling across a leap day", () => {
+            // 2028 is a leap year. This schedule will run over Feb 29, 2028.
+            const scheduleBuilder = new ScheduleBuilder("2028-02-14", 1, [], 4)
+            const schedule = scheduleBuilder.buildSchedule()
+            // If the date logic is correct, the core conflict rules should still hold true.
+            assertNo28DayConflicts(schedule)
+            assertNoWeeklyConflicts(schedule)
+            // Expect more than 20 days in the schedule
+            expect(schedule.length).toBeGreaterThanOrEqual(19)
         })
     })
 
-    // --- NEW TEST SUITE ---
+    // --- REWRITTEN: Schedule with History Tests ---
+    describe("Schedule with History", () => {
+        it("should identify and de-duplicate unique groups from history data", () => {
+            const historyData = [
+                { date: "2025-08-01", period: 1, group: "Flutes" },
+                { date: "2025-08-01", period: 4, group: "Oboes" },
+                { date: "2025-08-02", period: 2, group: "Flutes" }, // Duplicate group name
+            ]
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [],
+                1,
+                historyData
+            )
+            // Should find 2 unique groups, not 3.
+            expect(scheduleBuilder.LESSON_GROUPS.length).toBe(2)
+            // Should contain the correct unique group names.
+            expect(scheduleBuilder.LESSON_GROUPS.sort()).toEqual([
+                "Flutes",
+                "Oboes",
+            ])
+        })
+
+        it("should correctly populate its state with the MOST RECENT lesson from history", () => {
+            const historyData = [
+                { date: "2025-08-11", period: 1, group: "Flutes" }, // Older lesson
+                { date: "2025-08-12", period: 2, group: "Clarinets" },
+                { date: "2025-08-25", period: 1, group: "Flutes" }, // Most recent lesson for Flutes/Pd1
+            ]
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                [],
+                1,
+                historyData
+            )
+            const assignments = scheduleBuilder.periodAssignments
+            const expectedDate = new Date(2025, 7, 25) // August 25, 2025
+            expect(assignments["Flutes"][1].getTime()).toEqual(
+                expectedDate.getTime()
+            )
+        })
+
+        it("should fall back to default groups if history is null or empty", () => {
+            const defaultGroups = Array.from({ length: 22 }, (_, i) =>
+                String.fromCharCode("A".charCodeAt(0) + i)
+            )
+
+            // Test with null history
+            const builder1 = new ScheduleBuilder("2025-09-01", 1, [], 1, null)
+            expect(builder1.LESSON_GROUPS).toEqual(defaultGroups)
+
+            // Test with empty array history
+            const builder2 = new ScheduleBuilder("2025-09-01", 1, [], 1, [])
+            expect(builder2.LESSON_GROUPS).toEqual(defaultGroups)
+        })
+
+        it("should uphold all rules across the history/new schedule boundary", () => {
+            const historyData = [
+                // Schedule this lesson 15 days before the new schedule starts.
+                // This creates a potential 28-day conflict.
+                { date: "2025-08-18", period: 1, group: "Flutes" },
+                { date: "2025-08-18", period: 4, group: "Clarinets" },
+                { date: "2025-08-18", period: 7, group: "Oboes" },
+                { date: "2025-08-18", period: 8, group: "Bassoons" },
+            ]
+            // New schedule starts Sept 2, which is 15 days after Aug 18.
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-02",
+                2, // Day 2 Cycle uses Period 1
+                [],
+                8,
+                historyData
+            )
+
+            const schedule = scheduleBuilder.buildSchedule()
+
+            // The first lesson of the new schedule is on Tuesday, Sept 2 for Period 1.
+            // Because Flutes/Pd1 was only 15 days ago, it should NOT be "Flutes".
+            expect(schedule[0].lessons[0].group).not.toBe("Flutes")
+
+            // The main assertion: The entire generated schedule should have no conflicts
+            // when checked against the initial state provided by the history.
+            assertNo28DayConflicts(schedule, scheduleBuilder.periodAssignments)
+            assertNoWeeklyConflicts(schedule)
+        })
+    })
+
     describe("Weekly Scheduling Rules", () => {
         it("should not schedule a group more than once in a week with no days off", () => {
             const scheduleBuilder = new ScheduleBuilder(
@@ -369,6 +322,70 @@ describe("ScheduleBuilder", () => {
                 16
             )
             const schedule = scheduleBuilder.buildSchedule()
+            assertNoWeeklyConflicts(schedule)
+        })
+    })
+
+    // --- NEW: Complex "Days Off" Scenarios ---
+    describe('Complex "Days Off" Scenarios', () => {
+        it("should handle an entire week off without conflicts", () => {
+            const weekOff = [
+                "2025-09-08",
+                "2025-09-09",
+                "2025-09-10",
+                "2025-09-11",
+                "2025-09-12",
+            ]
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                weekOff,
+                4
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            const scheduledDates = schedule.map((entry) =>
+                entry.date.toDateString()
+            )
+
+            // Verify no lessons were scheduled during the week off.
+            weekOff.forEach((day) => {
+                const dateString = new Date(day + "T00:00:00").toDateString()
+                expect(scheduledDates.includes(dateString)).toBe(false)
+            })
+
+            // Verify the core rules are still met for the entire schedule.
+            assertNo28DayConflicts(schedule)
+            assertNoWeeklyConflicts(schedule)
+        })
+
+        it("should handle consecutive days off at the start of a week", () => {
+            const daysOff = ["2025-09-01", "2025-09-02", "2025-09-03"] // Mon, Tue, Wed
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                daysOff,
+                8
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNo28DayConflicts(schedule)
+            assertNoWeeklyConflicts(schedule)
+        })
+
+        it("should handle a week with only one available day", () => {
+            const daysOff = [
+                "2025-09-01",
+                "2025-09-02",
+                "2025-09-03",
+                "2025-09-04",
+            ] // Mon-Thu
+            const scheduleBuilder = new ScheduleBuilder(
+                "2025-09-01",
+                1,
+                daysOff,
+                8
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            assertNo28DayConflicts(schedule)
             assertNoWeeklyConflicts(schedule)
         })
     })

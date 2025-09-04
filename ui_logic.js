@@ -123,36 +123,65 @@ document.addEventListener("DOMContentLoaded", () => {
 
         let scheduleHistory = null
         if (historyCheckbox.checked) {
-            const historyGroups = document
-                .getElementById("history-groups")
+            const historyText = document
+                .getElementById("history-data")
                 .value.trim()
-                .split(/\s+/)
-                .filter(Boolean)
-            const historyStartDate =
-                document.getElementById("history-start-date").value
-            const historyDayCycle = parseInt(
-                document.getElementById("history-day-cycle").value,
-                10
-            )
-
-            if (historyGroups.length !== 22) {
+            if (!historyText) {
                 alert(
-                    `Schedule history requires exactly 22 group names separated by spaces. You provided ${historyGroups.length}.`
-                )
-                return null
-            }
-            if (!historyStartDate || isNaN(historyDayCycle)) {
-                alert(
-                    "Please provide a valid start date and day cycle for the schedule history."
+                    "Please paste the schedule history data when the checkbox is selected."
                 )
                 return null
             }
 
-            scheduleHistory = {
-                groups: historyGroups,
-                startDate: historyStartDate,
-                startCycle: historyDayCycle,
+            const parsedHistory = []
+            const lines = historyText.split("\n")
+            const dateRegex = /^\d{4}-\d{2}-\d{2}$/
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim()
+                if (line === "") continue // Skip empty lines
+
+                const parts = line.split(",")
+                if (parts.length !== 3) {
+                    alert(
+                        `Invalid history format on line ${
+                            i + 1
+                        }: Expected 3 comma-separated values (YYYY-MM-DD,Period,Group).`
+                    )
+                    return null
+                }
+
+                const [date, periodStr, group] = parts.map((p) => p.trim())
+                const period = parseInt(periodStr, 10)
+
+                if (!dateRegex.test(date)) {
+                    alert(
+                        `Invalid date format on line ${
+                            i + 1
+                        }: '${date}'. Expected YYYY-MM-DD.`
+                    )
+                    return null
+                }
+                if (isNaN(period)) {
+                    alert(
+                        `Invalid period on line ${
+                            i + 1
+                        }: '${periodStr}'. Expected a number.`
+                    )
+                    return null
+                }
+                if (!group) {
+                    alert(
+                        `Missing group name on line ${
+                            i + 1
+                        }. Please provide a group.`
+                    )
+                    return null
+                }
+
+                parsedHistory.push({ date, period, group })
             }
+            scheduleHistory = parsedHistory
         }
 
         return { startDate, dayCycle, daysOff, weeks, scheduleHistory }

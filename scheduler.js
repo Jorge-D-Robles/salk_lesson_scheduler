@@ -39,60 +39,72 @@ class ScheduleBuilder {
         this.DAY1_PERIODS = [1, 4, 7, 8]
         this.DAY2_PERIODS = [1, 2, 3, 7, 8]
 
-        if (scheduleHistory && scheduleHistory.groups.length === 22) {
-            this.LESSON_GROUPS = [...new Set(scheduleHistory.groups)]
+        // Step 1: Determine the set of all unique lesson groups.
+        if (
+            scheduleHistory &&
+            Array.isArray(scheduleHistory) &&
+            scheduleHistory.length > 0
+        ) {
+            // Infer the lesson groups from the provided history.
+            const groupsFromHistory = new Set(
+                scheduleHistory.map((item) => item.group).filter(Boolean)
+            )
+            groupsFromHistory.delete("MU") // "MU" is not a real group.
+            this.LESSON_GROUPS = [...groupsFromHistory]
         } else {
+            // Fallback to default A-V groups if no history is provided.
             this.LESSON_GROUPS = Array.from({ length: 22 }, (_, i) =>
                 String.fromCharCode("A".charCodeAt(0) + i)
             )
         }
 
+        // Step 2: Initialize the data structure for storing the last seen date for each group/period.
         this.periodAssignments = {}
         this.LESSON_GROUPS.forEach((g) => (this.periodAssignments[g] = {}))
 
-        if (scheduleHistory && scheduleHistory.groups.length === 22) {
+        // Step 3: Populate this structure from the history, if it exists.
+        if (
+            scheduleHistory &&
+            Array.isArray(scheduleHistory) &&
+            scheduleHistory.length > 0
+        ) {
             this._populateAssignmentsFromHistory(scheduleHistory)
         }
 
+        // Step 4: Create the rotating group sets for the scheduling algorithm.
         this.groupSets = []
         const allGroupsCopy = [...this.LESSON_GROUPS]
-        this.groupSets.push(allGroupsCopy.splice(0, 5))
-        this.groupSets.push(allGroupsCopy.splice(0, 5))
-        this.groupSets.push(allGroupsCopy.splice(0, 4))
-        this.groupSets.push(allGroupsCopy.splice(0, 4))
-        this.groupSets.push(allGroupsCopy.splice(0, 4))
+        // Ensure there are groups to schedule before attempting to create sets.
+        if (allGroupsCopy.length > 0) {
+            this.groupSets.push(allGroupsCopy.splice(0, 5))
+            this.groupSets.push(allGroupsCopy.splice(0, 5))
+            this.groupSets.push(allGroupsCopy.splice(0, 4))
+            this.groupSets.push(allGroupsCopy.splice(0, 4))
+            this.groupSets.push(allGroupsCopy.splice(0, 4))
+        }
     }
 
     _populateAssignmentsFromHistory(history) {
-        const historyGroups = [...history.groups]
-        const startParts = history.startDate.split("-")
-        let currentDate = new Date(
-            startParts[0],
-            startParts[1] - 1,
-            startParts[2]
-        )
-        let currentCycle = history.startCycle
+        history.forEach((lesson) => {
+            // Basic validation for the history entry.
+            if (!lesson.group || !lesson.period || !lesson.date) return
 
-        while (historyGroups.length > 0) {
-            const dayOfWeek = currentDate.getDay()
-            const isWeekday = dayOfWeek > 0 && dayOfWeek < 6
+            // Only process groups that were identified as part of this schedule.
+            if (this.periodAssignments[lesson.group]) {
+                // Robustly parse 'YYYY-MM-DD' as a local date to avoid timezone issues.
+                const parts = lesson.date.split("-").map((p) => parseInt(p, 10))
+                const historyDate = new Date(parts[0], parts[1] - 1, parts[2])
 
-            if (isWeekday) {
-                const periodsForDay =
-                    currentCycle % 2 !== 0
-                        ? this.DAY1_PERIODS
-                        : this.DAY2_PERIODS
-                for (const period of periodsForDay) {
-                    if (historyGroups.length === 0) break
-                    const group = historyGroups.shift()
-                    this.periodAssignments[group][period] = new Date(
-                        currentDate.getTime()
-                    )
+                // Check if this lesson is more recent than one already recorded.
+                // This ensures we only store the *last* time a group was seen for a period.
+                const existingDate =
+                    this.periodAssignments[lesson.group][lesson.period]
+                if (!existingDate || historyDate > existingDate) {
+                    this.periodAssignments[lesson.group][lesson.period] =
+                        historyDate
                 }
-                currentCycle++
             }
-            currentDate.setDate(currentDate.getDate() + 1)
-        }
+        })
     }
 
     setupNextGroupCycle() {
