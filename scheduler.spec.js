@@ -37,7 +37,7 @@ const assertNo28DayConflicts = (schedule, initialAssignments = {}) => {
                 )
 
                 expect(differenceInDays).toBeGreaterThanOrEqual(
-                    21,
+                    28,
                     `Conflict: Group ${group} was scheduled for ${period} on ${dayEntry.date.toDateString()}, only ${differenceInDays} days after its last session on ${lastTimeInPeriod.toDateString()}.`
                 )
             }

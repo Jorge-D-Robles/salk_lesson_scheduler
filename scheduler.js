@@ -118,11 +118,10 @@ class ScheduleBuilder {
         return slots
     }
 
-    isValid(group, slot, schedule) {
+    isValid(group, slot, schedule, dayRule) {
         const { date, period } = slot
         const periodStr = `Pd ${period}`
 
-        // 1. Weekly Constraint
         const getWeekIdentifier = (d) => {
             const newD = new Date(d)
             newD.setHours(0, 0, 0, 0)
@@ -137,7 +136,6 @@ class ScheduleBuilder {
             }
         }
 
-        // 2. 21-Day Constraint
         let mostRecentDate = this.periodAssignments[group]?.[period] || null
         for (const entry of schedule) {
             for (const lesson of entry.lessons) {
@@ -150,10 +148,9 @@ class ScheduleBuilder {
         }
         if (mostRecentDate) {
             const daysSince = (date - mostRecentDate) / (1000 * 60 * 60 * 24)
-            if (daysSince < 21) return false
+            if (daysSince < dayRule) return false
         }
 
-        // 3. MU Clustering Constraint
         const todaysLessons =
             schedule.find((d) => d.date.toDateString() === date.toDateString())
                 ?.lessons || []
@@ -163,15 +160,12 @@ class ScheduleBuilder {
         return true
     }
 
-    solve(slots, index, schedule) {
-        if (index >= slots.length) {
-            return schedule // Success
-        }
+    solve(slots, index, schedule, dayRule) {
+        if (index >= slots.length) return schedule
 
         const slot = slots[index]
         const { date, dayCycle } = slot
 
-        // Find or create the current day's entry in the schedule
         let dayEntry = schedule.find(
             (d) => d.date.toDateString() === date.toDateString()
         )
@@ -184,15 +178,13 @@ class ScheduleBuilder {
 
         const candidates = [...this.LESSON_GROUPS, "MU"]
 
-        // --- HEURISTIC: Sort candidates to try the most promising ones first ---
         candidates.sort((a, b) => {
-            if (a === "MU") return 1 // Try MU last
+            if (a === "MU") return 1
             if (b === "MU") return -1
 
             let lastDateA = this.periodAssignments[a]?.[slot.period] || null
             let lastDateB = this.periodAssignments[b]?.[slot.period] || null
 
-            // This loop is a bit slow but necessary for correctness in backtracking
             for (const entry of schedule) {
                 for (const lesson of entry.lessons) {
                     if (
@@ -210,30 +202,42 @@ class ScheduleBuilder {
             lastDateA = lastDateA || new Date(0)
             lastDateB = lastDateB || new Date(0)
 
-            return lastDateB - lastDateA // Sort descending by date (most recent is smaller)
+            return lastDateA - lastDateB
         })
 
         for (const group of candidates) {
-            if (this.isValid(group, slot, schedule)) {
+            if (this.isValid(group, slot, schedule, dayRule)) {
                 dayEntry.addLesson(slot.period, group)
-
-                const result = this.solve(slots, index + 1, schedule)
-                if (result) return result // Propagate success
-
-                dayEntry.lessons.pop() // Backtrack
+                const result = this.solve(slots, index + 1, schedule, dayRule)
+                if (result) return result
+                dayEntry.lessons.pop()
             }
         }
 
-        // If no candidate worked, backtrack by removing the day entry if it was just added
-        if (dayEntry.lessons.length === 0) {
-            schedule.pop()
-        }
+        if (dayEntry.lessons.length === 0) schedule.pop()
 
-        return null // Trigger backtracking
+        return null
     }
 
     buildSchedule() {
         const slots = this.generateAllSlots()
-        return this.solve(slots, 0, []) || []
+        if (slots.length === 0) return []
+
+        // --- FINAL IMPLEMENTATION: TWO-PASS BACKTRACKING ---
+        // 1. Attempt to solve with the ideal 28-day rule.
+        console.log(
+            "Attempting to find a perfect schedule with a 28-day constraint..."
+        )
+        let schedule = this.solve(slots, 0, [], 28)
+
+        // 2. If no solution is found, attempt again with the relaxed 21-day rule.
+        if (!schedule) {
+            console.log(
+                "No 28-day solution found. Attempting a high-quality schedule with a 21-day constraint..."
+            )
+            schedule = this.solve(slots, 0, [], 21)
+        }
+
+        return schedule || []
     }
 }
