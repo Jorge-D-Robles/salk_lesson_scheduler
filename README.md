@@ -191,3 +191,38 @@ buildSchedule() {
     return []; // No solution found
 }
 ```
+
+The algorithm's complexity is exponential in the worst-case for time and linear for space.
+
+Let **N** be the number of time slots to be filled.
+Let **G** be the number of lesson groups (the domain size, \~23 in this case).
+
+-----
+
+### Time Complexity: O(G^N \* (G log G))
+
+The time complexity is a product of the search space size and the work done at each step.
+
+  * **`O(G^N)` - The Search Space:** In a worst-case scenario, the algorithm behaves like a brute-force search. For each of the **N** slots, it might have to try all **G** groups. This creates a decision tree of depth **N** with a branching factor of **G**, leading to `G^N` possible combinations.
+  * **`O(G log G)` - Work Per Step:** At each recursive call (each node in the search tree), the algorithm performs several operations. The most expensive one is sorting the candidate groups to apply the heuristic:
+    ```javascript
+    candidates.sort((a, b) => { ... });
+    ```
+    Sorting a list of size **G** has a complexity of `O(G log G)`.
+
+**Important Caveat:** This `O(G^N)` complexity represents the absolute worst-case scenario. In practice, the algorithm is significantly faster due to **pruning**. Every time a constraint check fails, the algorithm prunes an entire branch of the search tree, preventing it from exploring millions of invalid combinations. The actual performance depends heavily on how restrictive the constraints are.
+
+-----
+
+### Space Complexity: O(N + G)
+
+The space complexity is determined by the memory required for the recursion stack and the data structures used to store the state.
+
+1.  **Recursion Stack Depth (`O(N)`):** The `solve` function calls itself for each slot. The maximum depth of this recursion is **N**, so the call stack will consume `O(N)` space.
+
+2.  **Data Structures (`O(N + G)`):**
+
+      * The `slots` array and the final `schedule` array are both proportional to the number of slots, requiring `O(N)` space.
+      * The state-tracking structures (`weeklyAssignments`, `muDays`, and `periodAssignments`) also scale linearly. For example, `weeklyAssignments` stores an entry for each of the **N** lessons placed, and `periodAssignments` stores at most one entry for each of the **G** groups per period. Their combined size is `O(N + G)`.
+
+Since all components scale linearly with either **N** or **G**, the total space complexity is **`O(N + G)`**.
