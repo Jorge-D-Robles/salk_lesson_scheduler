@@ -1,8 +1,19 @@
+/**
+ * @file Manages all UI interactions for the Music Lesson Scheduler.
+ * This includes handling form inputs, validating user data, running the
+ * scheduler, and displaying the results in a table.
+ */
+
 // --- UI Logic and Event Handling ---
 
+/**
+ * Stores the parameters of the last successfully generated schedule.
+ * @type {Object}
+ */
 let lastScheduleParams = {}
 
 document.addEventListener("DOMContentLoaded", () => {
+    // --- Element Selectors ---
     const form = document.getElementById("schedule-form")
     const generateBtn = document.getElementById("generate-btn")
     const saveCsvBtn = document.getElementById("save-csv-btn")
@@ -13,17 +24,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const validationBox = document.getElementById("history-validation-box")
     const startDateInput = document.getElementById("start-date")
 
+    // --- Initial Setup ---
+    // Set the default start date to today.
     const today = new Date()
     const yyyy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, "0")
     const dd = String(today.getDate()).padStart(2, "0")
     startDateInput.value = `${yyyy}-${mm}-${dd}`
 
+    // --- Event Listeners ---
     startDateInput.addEventListener("change", () => {
         checkStartDateWarning()
         runAllValidations()
     })
+
     historyTextarea.addEventListener("input", runAllValidations)
+
     historyCheckbox.addEventListener("change", () => {
         historyContainer.classList.toggle("hidden", !historyCheckbox.checked)
         runAllValidations()
@@ -39,81 +55,6 @@ document.addEventListener("DOMContentLoaded", () => {
     `
         container.appendChild(newDayOff)
     })
-
-    function checkStartDateWarning() {
-        const warningBox = document.getElementById("start-day-warning")
-        const dateValue = startDateInput.value
-        if (!dateValue) {
-            warningBox.classList.add("hidden")
-            return
-        }
-        const dateObj = new Date(dateValue + "T00:00:00")
-        const day = dateObj.getDay()
-        warningBox.classList.toggle("hidden", day === 1)
-    }
-
-    function runAllValidations() {
-        const gapWarningBox = document.getElementById("schedule-gap-warning")
-        gapWarningBox.classList.add("hidden") // Reset gap warning
-
-        if (!historyCheckbox.checked) {
-            validationBox.classList.add("hidden")
-            startDateInput.classList.remove("border-red-500")
-            updateGenerateButtonState()
-            return
-        }
-
-        const text = historyTextarea.value
-        const { errors, uniqueGroupCount, maxDate } = validateHistory(text)
-        const startDate = new Date(startDateInput.value + "T00:00:00")
-
-        if (maxDate && startDate <= maxDate) {
-            errors.push(
-                `<b>Overall:</b> Start date must be after the last date in the history (${maxDate.toLocaleDateString()}).`
-            )
-            startDateInput.classList.add("border-red-500")
-        } else {
-            startDateInput.classList.remove("border-red-500")
-        }
-
-        // --- NEW: Schedule Gap Warning (Yellow Warning) ---
-        if (maxDate && errors.length === 0) {
-            let nextWorkday = new Date(maxDate.getTime())
-            nextWorkday.setDate(nextWorkday.getDate() + 1)
-            while (nextWorkday.getDay() === 0 || nextWorkday.getDay() === 6) {
-                nextWorkday.setDate(nextWorkday.getDate() + 1)
-            }
-            if (startDate.getTime() > nextWorkday.getTime()) {
-                gapWarningBox.classList.remove("hidden")
-            }
-        }
-
-        if (text.trim() === "" || errors.length > 0) {
-            validationBox.classList.remove("hidden")
-            validationBox.innerHTML = `<ul>${errors
-                .map((e) => `<li>- ${e}</li>`)
-                .join("")}</ul>`
-            validationBox.className =
-                "mt-2 p-3 rounded-md text-sm bg-red-50 text-red-700"
-        } else {
-            validationBox.classList.remove("hidden")
-            validationBox.innerHTML = `✅ All checks pass. Found ${uniqueGroupCount} of 22 required unique groups.`
-            validationBox.className =
-                "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
-        }
-        updateGenerateButtonState(errors)
-    }
-
-    function updateGenerateButtonState(errors = null) {
-        if (!historyCheckbox.checked) {
-            generateBtn.disabled = false
-            return
-        }
-        if (errors === null) {
-            errors = validateHistory(historyTextarea.value).errors
-        }
-        generateBtn.disabled = errors.length > 0
-    }
 
     document
         .getElementById("days-off-container")
@@ -132,6 +73,104 @@ document.addEventListener("DOMContentLoaded", () => {
         exportTableToCSV("musical-lesson-schedule.csv")
     })
 
+    // --- Core UI Functions ---
+
+    /**
+     * Displays or hides a UI warning if the selected start date is not a Monday.
+     */
+    function checkStartDateWarning() {
+        const warningBox = document.getElementById("start-day-warning")
+        const dateValue = startDateInput.value
+        if (!dateValue) {
+            warningBox.classList.add("hidden")
+            return
+        }
+        // Use T00:00:00 to ensure the date is parsed in the local timezone.
+        const dateObj = new Date(dateValue + "T00:00:00")
+        const day = dateObj.getDay() // 1 = Monday
+        warningBox.classList.toggle("hidden", day === 1)
+    }
+
+    /**
+     * Acts as the master validation controller. It's triggered on input changes
+     * and orchestrates calls to `validateHistory`, checks date overlaps, and
+     * updates the UI with validation messages and warnings.
+     */
+    function runAllValidations() {
+        const gapWarningBox = document.getElementById("schedule-gap-warning")
+        gapWarningBox.classList.add("hidden") // Reset gap warning
+
+        if (!historyCheckbox.checked) {
+            validationBox.classList.add("hidden")
+            startDateInput.classList.remove("border-red-500")
+            updateGenerateButtonState()
+            return
+        }
+
+        const text = historyTextarea.value
+        const { errors, uniqueGroupCount, maxDate } = validateHistory(text)
+        const startDate = new Date(startDateInput.value + "T00:00:00")
+
+        // Validate that the start date is after the last date in the history.
+        if (maxDate && startDate <= maxDate) {
+            errors.push(
+                `<b>Overall:</b> Start date must be after the last date in the history (${maxDate.toLocaleDateString()}).`
+            )
+            startDateInput.classList.add("border-red-500")
+        } else {
+            startDateInput.classList.remove("border-red-500")
+        }
+
+        // Show a warning if there's a gap between the history's end and the new schedule's start.
+        if (maxDate && errors.length === 0) {
+            let nextWorkday = new Date(maxDate.getTime())
+            nextWorkday.setDate(nextWorkday.getDate() + 1)
+            while (nextWorkday.getDay() === 0 || nextWorkday.getDay() === 6) {
+                nextWorkday.setDate(nextWorkday.getDate() + 1)
+            }
+            if (startDate.getTime() > nextWorkday.getTime()) {
+                gapWarningBox.classList.remove("hidden")
+            }
+        }
+
+        // Display validation results in the UI.
+        if (text.trim() === "" || errors.length > 0) {
+            validationBox.classList.remove("hidden")
+            validationBox.innerHTML = `<ul>${errors
+                .map((e) => `<li>- ${e}</li>`)
+                .join("")}</ul>`
+            validationBox.className =
+                "mt-2 p-3 rounded-md text-sm bg-red-50 text-red-700"
+        } else {
+            validationBox.classList.remove("hidden")
+            validationBox.innerHTML = `✅ All checks pass. Found ${uniqueGroupCount} of 22 required unique groups.`
+            validationBox.className =
+                "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
+        }
+        updateGenerateButtonState(errors)
+    }
+
+    /**
+     * Enables or disables the 'Generate Schedule' button based on validation results.
+     * @param {string[]|null} [errors=null] - An array of error messages. If null, re-validates.
+     */
+    function updateGenerateButtonState(errors = null) {
+        if (!historyCheckbox.checked) {
+            generateBtn.disabled = false
+            return
+        }
+        if (errors === null) {
+            errors = validateHistory(historyTextarea.value).errors
+        }
+        generateBtn.disabled = errors.length > 0
+    }
+
+    /**
+     * Handles the main form submission. It shows a loading indicator, gathers form
+     * parameters, calls the `ScheduleBuilder`, and then renders the result.
+     * Uses a `setTimeout` to allow the UI to update before the potentially blocking
+     * scheduling logic runs.
+     */
     function runScheduler() {
         document.getElementById("loading-indicator").classList.remove("hidden")
         document.getElementById("schedule-output").classList.add("hidden")
@@ -165,20 +204,32 @@ document.addEventListener("DOMContentLoaded", () => {
                 document
                     .getElementById("schedule-output")
                     .classList.remove("hidden")
-                runAllValidations()
+                runAllValidations() // Re-enable button if necessary
             }
-        }, 250)
+        }, 250) // 250ms delay for UI rendering
     }
 
+    /**
+     * Parses a single line of text from the history textarea, handling both
+     * tab-separated and comma-separated (CSV) formats.
+     * @param {string} line - The line of text to parse.
+     * @returns {string[]} An array of column values.
+     */
     function parseScheduleLine(line) {
         if (line.includes("\t")) {
-            return line.split("\t")
+            return line.split("\t") // Handle spreadsheet paste
         } else {
+            // Handle CSV paste with potential quotes
             const columns = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || []
             return columns.map((col) => col.trim().replace(/^"|"$/g, ""))
         }
     }
 
+    /**
+     * Performs a comprehensive validation of the pasted schedule history text.
+     * @param {string} text - The raw text from the history textarea.
+     * @returns {{errors: string[], uniqueGroupCount: number, maxDate: Date|null}} An object containing validation results.
+     */
     function validateHistory(text) {
         const errors = []
         const lines = text.split("\n").filter((line) => line.trim() !== "")
@@ -196,7 +247,7 @@ document.addEventListener("DOMContentLoaded", () => {
             (lines[0].toLowerCase().includes("date") ||
                 lines[0].toLowerCase().includes("period"))
                 ? lines.slice(1)
-                : lines
+                : lines // Skip header row if present
 
         if (dataLines.length === 0) {
             errors.push("<b>Overall:</b> No data rows found in the paste.")
@@ -283,6 +334,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return { errors, uniqueGroupCount: uniqueGroups.size, maxDate }
     }
 
+    /**
+     * Gathers all user inputs from the form and parses them into an object
+     * suitable for the `ScheduleBuilder`.
+     * @returns {Object|null} An object with all schedule parameters, or null if validation fails.
+     */
     function getScheduleParameters() {
         const startDate = document.getElementById("start-date").value
         const dayCycle = parseInt(
@@ -305,20 +361,21 @@ document.addEventListener("DOMContentLoaded", () => {
             const historyText = document
                 .getElementById("history-data")
                 .value.trim()
-            const { errors } = validateHistory(historyText)
+            // Final validation check before submitting.
+            const { errors, maxDate } = validateHistory(historyText)
             const startDateObj = new Date(startDate + "T00:00:00")
-            const maxDateInHistory = validateHistory(historyText).maxDate
-            if (maxDateInHistory && startDateObj <= maxDateInHistory) {
-                errors.push("Start date error")
+            if (maxDate && startDateObj <= maxDate) {
+                errors.push("Start date error") // Add to trigger alert
             }
             if (errors.length > 0) {
-                runAllValidations()
+                runAllValidations() // Ensure UI shows errors
                 alert(
                     "There are errors in your inputs. Please fix the highlighted fields and messages."
                 )
                 return null
             }
 
+            // Parse history text into the structured format required by ScheduleBuilder.
             const parsedHistory = []
             let lines = historyText.split("\n")
             if (
@@ -364,44 +421,50 @@ document.addEventListener("DOMContentLoaded", () => {
         return { startDate, dayCycle, daysOff, weeks, scheduleHistory }
     }
 
+    /**
+     * Renders the generated schedule into the HTML table. It dynamically
+     * creates rows and includes visual spacers for readability.
+     * @param {Array<ScheduleEntry>} schedule - The schedule array from `ScheduleBuilder`.
+     */
     function displaySchedule(schedule) {
         const tableBody = document.querySelector("#schedule-table tbody")
         tableBody.innerHTML = ""
 
         if (schedule.length === 0) {
-            tableBody.innerHTML = `<tr><td colspan="12" class="text-center py-4">No schedule generated for the selected dates. Check days off.</td></tr>`
+            tableBody.innerHTML = `<tr><td colspan="12" class="text-center py-4">No schedule generated. Check dates and days off.</td></tr>`
             return
         }
 
-        // --- CHANGE START: Robust Spacer Logic ---
-
-        // Helper function to get a unique ID for a calendar week (the date of its Monday).
+        /**
+         * Helper function to get a unique identifier for a calendar week (the date string of its Monday).
+         * @param {Date} d The date to check.
+         * @returns {string} The date string of the Monday of that week.
+         */
         const getWeekIdentifier = (d) => {
             const newD = new Date(d)
             newD.setHours(0, 0, 0, 0)
-            const day = newD.getDay()
-            const diff = newD.getDate() - day + (day === 0 ? -6 : 1) // Adjust for Sunday
+            const day = newD.getDay() // 0=Sun, 1=Mon...
+            const diff = newD.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
             return new Date(newD.setDate(diff)).toDateString()
         }
 
         // Initialize trackers for week and 4-week chronological periods.
         let currentWeekIdentifier = getWeekIdentifier(schedule[0].date)
         let fourWeekBoundary = new Date(schedule[0].date.getTime())
-        fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28) // Set first boundary 4 weeks from start.
+        fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
 
         schedule.forEach((entry, index) => {
-            // FIX #1: Insert weekly spacer if the week ID has changed.
-            // This is more robust than just checking for Mondays.
+            // Insert a visual spacer if the calendar week has changed since the last entry.
             const entryWeekIdentifier = getWeekIdentifier(entry.date)
             if (entryWeekIdentifier !== currentWeekIdentifier) {
                 const spacerRow = document.createElement("tr")
                 spacerRow.className = "bg-gray-200 weekly-spacer"
                 spacerRow.innerHTML = `<td colspan="12" class="py-1"></td>`
                 tableBody.appendChild(spacerRow)
-                currentWeekIdentifier = entryWeekIdentifier // Update the tracker
+                currentWeekIdentifier = entryWeekIdentifier
             }
 
-            // --- Original row rendering logic starts here ---
+            // Create and populate the main data row.
             const row = document.createElement("tr")
             const formattedDate = entry.date.toLocaleDateString(undefined, {
                 weekday: "short",
@@ -415,7 +478,7 @@ document.addEventListener("DOMContentLoaded", () => {
             for (let i = 0; i < 5; i++) {
                 if (entry.lessons[i]) {
                     const groupClass = entry.lessons[i].group.startsWith("MU")
-                        ? "text-red-600"
+                        ? "text-red-600" // Highlight Make-Up lessons
                         : "text-gray-800"
                     rowHTML += `
                         <td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td>
@@ -426,35 +489,33 @@ document.addEventListener("DOMContentLoaded", () => {
                         '<td class="px-2 py-3"></td><td class="px-2 py-3"></td>'
                 }
             }
-
             row.innerHTML = rowHTML
             tableBody.appendChild(row)
-            // --- Original row rendering logic ends here ---
 
-            // FIX #2: Check for chronological 4-week boundary crossing.
-            // This replaces the old logic that was based on the number of school days.
+            // Insert a visual spacer if a 4-week chronological boundary is crossed.
             const isNotLastDay = index + 1 < schedule.length
             if (isNotLastDay) {
                 const currentDate = entry.date
                 const nextDate = schedule[index + 1].date
-                // Check if the boundary is between the current day and the next scheduled day.
                 if (
                     currentDate < fourWeekBoundary &&
                     nextDate >= fourWeekBoundary
                 ) {
                     const cycleSpacerRow = document.createElement("tr")
                     cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
-                    // Updated text to be clearer as requested.
                     cycleSpacerRow.innerHTML = `<td colspan="12" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Period ---</td>`
                     tableBody.appendChild(cycleSpacerRow)
-                    // Set the next boundary 28 days from the last one to prevent drift.
+                    // Advance the boundary for the next check.
                     fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
                 }
             }
         })
-        // --- CHANGE END ---
     }
 
+    /**
+     * Converts the content of the HTML schedule table into a CSV formatted string.
+     * @param {string} filename - The desired name for the downloaded file.
+     */
     function exportTableToCSV(filename) {
         const csv = []
         const rows = document.querySelectorAll("#schedule-table tr")
@@ -465,11 +526,12 @@ document.addEventListener("DOMContentLoaded", () => {
         csv.push(header.join(","))
 
         rows.forEach((row) => {
+            // Skip visual spacer rows in the CSV output.
             if (row.classList.contains("weekly-spacer")) {
                 return
             }
             if (row.classList.contains("cycle-spacer")) {
-                csv.push("")
+                csv.push("") // Add a blank line for the cycle spacer
                 return
             }
 
@@ -483,6 +545,11 @@ document.addEventListener("DOMContentLoaded", () => {
         downloadCSV(csv.join("\n"), filename)
     }
 
+    /**
+     * Triggers a browser download for the given CSV content.
+     * @param {string} csv - The CSV content as a single string.
+     * @param {string} filename - The name of the file to be downloaded.
+     */
     function downloadCSV(csv, filename) {
         const csvFile = new Blob([csv], { type: "text/csv" })
         const downloadLink = document.createElement("a")
@@ -494,7 +561,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.removeChild(downloadLink)
     }
 
-    // Set initial state of the page
+    // --- Page Initialization ---
     checkStartDateWarning()
     runAllValidations()
 })
