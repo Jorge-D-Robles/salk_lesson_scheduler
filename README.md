@@ -192,6 +192,8 @@ buildSchedule() {
 }
 ```
 
+## Complexity Analysis
+
 The algorithm's complexity is exponential in the worst-case for time and linear for space.
 
 Let **N** be the number of time slots to be filled.
