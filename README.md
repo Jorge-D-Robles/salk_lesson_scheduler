@@ -112,10 +112,13 @@ This recursive method is the core of the algorithm. It systematically tries to p
     b. **Heuristic Optimization:** The candidates are sorted. This is a critical optimization. Groups that have gone the longest without an assignment in the current `period` are tried first. This heuristic helps the solver find a valid path more quickly by addressing the most constrained assignments first.
 
     c. **Constraint Checking:** It iterates through each candidate group and checks if placing it in the current slot violates any rules:
+
     \* **Weekly Rule:** A group cannot have more than one lesson in the same week.
     ` javascript // weeklyAssignments is a Map<weekId, Set<group>> if (groupsThisWeek.has(group)) isValid = false;  `
+
     \* **Period Separation Rule:** A group cannot be assigned to the same period if its last assignment in that period was less than `dayRule` days ago.
     ` javascript // periodAssignments is an Object { group: { period: date } } const lastDate = periodAssignments[group]?.[period]; if ( lastDate && (date - lastDate) / (1000 * 60 * 60 * 24) < dayRule ) { isValid = false; }  `
+
     \* **Makeup ('MU') Rule:** The 'MU' group can only appear once on any given day.
     ` javascript // muDays is a Set of date strings if (muPlacedToday) isValid = false;  `
 
