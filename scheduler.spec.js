@@ -307,7 +307,7 @@ describe("ScheduleBuilder", () => {
                 1,
                 historyData
             )
-            const assignments = scheduleBuilder.periodAssignments
+            const assignments = scheduleBuilder.initialPeriodAssignments
             const expectedDate = new Date(2025, 7, 25)
             expect(assignments["Flutes"][1].getTime()).toEqual(
                 expectedDate.getTime()
