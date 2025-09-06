@@ -15,7 +15,7 @@ class ScheduleEntry {
 }
 
 /**
- * Builds the schedule using a final, optimized backtracking algorithm guided by a powerful heuristic.
+ * Builds the schedule using an optimized backtracking algorithm with efficient state management.
  */
 class ScheduleBuilder {
     constructor(startDate, dayCycle, daysOff, weeks, scheduleHistory = null) {
@@ -56,8 +56,10 @@ class ScheduleBuilder {
             )
         }
 
-        this.periodAssignments = {}
-        this.LESSON_GROUPS.forEach((g) => (this.periodAssignments[g] = {}))
+        this.initialPeriodAssignments = {}
+        this.LESSON_GROUPS.forEach(
+            (g) => (this.initialPeriodAssignments[g] = {})
+        )
         if (scheduleHistory)
             this._populateAssignmentsFromHistory(scheduleHistory)
     }
@@ -71,7 +73,7 @@ class ScheduleBuilder {
                 lesson.group === "MU"
             )
                 return
-            if (this.periodAssignments[lesson.group]) {
+            if (this.initialPeriodAssignments[lesson.group]) {
                 const parts = lesson.date.split("-").map((p) => parseInt(p, 10))
                 const historyDate = new Date(parts[0], parts[1] - 1, parts[2])
                 const periodNum = parseInt(
@@ -79,9 +81,9 @@ class ScheduleBuilder {
                     10
                 )
                 const existingDate =
-                    this.periodAssignments[lesson.group][periodNum]
+                    this.initialPeriodAssignments[lesson.group][periodNum]
                 if (!existingDate || historyDate > existingDate) {
-                    this.periodAssignments[lesson.group][periodNum] =
+                    this.initialPeriodAssignments[lesson.group][periodNum] =
                         historyDate
                 }
             }
@@ -118,126 +120,212 @@ class ScheduleBuilder {
         return slots
     }
 
-    isValid(group, slot, schedule, dayRule) {
-        const { date, period } = slot
-        const periodStr = `Pd ${period}`
-
-        const getWeekIdentifier = (d) => {
-            const newD = new Date(d)
-            newD.setHours(0, 0, 0, 0)
-            const day = newD.getDay()
-            const diff = newD.getDate() - day + (day === 0 ? -6 : 1)
-            return new Date(newD.setDate(diff)).toDateString()
-        }
-        const weekId = getWeekIdentifier(date)
-        for (const entry of schedule) {
-            if (getWeekIdentifier(entry.date) === weekId) {
-                if (entry.lessons.some((l) => l.group === group)) return false
-            }
-        }
-
-        let mostRecentDate = this.periodAssignments[group]?.[period] || null
-        for (const entry of schedule) {
-            for (const lesson of entry.lessons) {
-                if (lesson.group === group && lesson.period === periodStr) {
-                    if (!mostRecentDate || entry.date > mostRecentDate) {
-                        mostRecentDate = entry.date
-                    }
-                }
-            }
-        }
-        if (mostRecentDate) {
-            const daysSince = (date - mostRecentDate) / (1000 * 60 * 60 * 24)
-            if (daysSince < dayRule) return false
-        }
-
-        const todaysLessons =
-            schedule.find((d) => d.date.toDateString() === date.toDateString())
-                ?.lessons || []
-        if (group === "MU" && todaysLessons.some((l) => l.group === "MU"))
-            return false
-
-        return true
+    getWeekIdentifier(d) {
+        const newD = new Date(d)
+        newD.setHours(0, 0, 0, 0)
+        const day = newD.getDay()
+        const diff = newD.getDate() - day + (day === 0 ? -6 : 1)
+        return new Date(newD.setDate(diff)).toDateString()
     }
 
-    solve(slots, index, schedule, dayRule) {
-        if (index >= slots.length) return schedule
+    solve(
+        slots,
+        index,
+        schedule,
+        weeklyAssignments,
+        periodAssignments,
+        muDays,
+        dayRule
+    ) {
+        if (index >= slots.length) return true
 
         const slot = slots[index]
-        const { date, dayCycle } = slot
+        const { date, period, dayCycle } = slot
+        const dateStr = date.toDateString()
+        const weekId = this.getWeekIdentifier(date)
 
-        let dayEntry = schedule.find(
-            (d) => d.date.toDateString() === date.toDateString()
-        )
-        if (!dayEntry) {
-            const displayCycle = dayCycle % 2 === 0 ? 2 : 1
-            dayEntry = new ScheduleEntry(date, displayCycle)
-            schedule.push(dayEntry)
-            schedule.sort((a, b) => a.date - b.date)
+        // Get or create the set for this week
+        if (!weeklyAssignments.has(weekId)) {
+            weeklyAssignments.set(weekId, new Set())
         }
+        const groupsThisWeek = weeklyAssignments.get(weekId)
+        const muPlacedToday = muDays.has(dateStr)
 
+        // Build candidates list with MU last for better pruning
         const candidates = [...this.LESSON_GROUPS, "MU"]
 
+        // Sort non-MU candidates by last assignment date for this period
         candidates.sort((a, b) => {
             if (a === "MU") return 1
             if (b === "MU") return -1
-
-            let lastDateA = this.periodAssignments[a]?.[slot.period] || null
-            let lastDateB = this.periodAssignments[b]?.[slot.period] || null
-
-            for (const entry of schedule) {
-                for (const lesson of entry.lessons) {
-                    if (
-                        lesson.group === a &&
-                        lesson.period === `Pd ${slot.period}`
-                    )
-                        lastDateA = entry.date
-                    if (
-                        lesson.group === b &&
-                        lesson.period === `Pd ${slot.period}`
-                    )
-                        lastDateB = entry.date
-                }
-            }
-            lastDateA = lastDateA || new Date(0)
-            lastDateB = lastDateB || new Date(0)
-
+            const lastDateA = periodAssignments[a]?.[period] || new Date(0)
+            const lastDateB = periodAssignments[b]?.[period] || new Date(0)
             return lastDateA - lastDateB
         })
 
         for (const group of candidates) {
-            if (this.isValid(group, slot, schedule, dayRule)) {
-                dayEntry.addLesson(slot.period, group)
-                const result = this.solve(slots, index + 1, schedule, dayRule)
-                if (result) return result
+            // Check validity
+            let isValid = true
+
+            if (group === "MU") {
+                if (muPlacedToday) isValid = false
+            } else {
+                if (groupsThisWeek.has(group)) isValid = false
+                const lastDate = periodAssignments[group]?.[period]
+                if (
+                    lastDate &&
+                    (date - lastDate) / (1000 * 60 * 60 * 24) < dayRule
+                ) {
+                    isValid = false
+                }
+            }
+
+            if (isValid) {
+                // Find or create day entry
+                let dayEntry = schedule.find(
+                    (d) => d.date.toDateString() === dateStr
+                )
+                if (!dayEntry) {
+                    const displayCycle = dayCycle % 2 === 0 ? 2 : 1
+                    dayEntry = new ScheduleEntry(date, displayCycle)
+                    schedule.push(dayEntry)
+                    schedule.sort((a, b) => a.date - b.date)
+                }
+
+                // Add lesson
+                dayEntry.addLesson(period, group)
+
+                // Update state IN PLACE
+                let addedToWeek = false
+                let previousDate = null
+
+                if (group === "MU") {
+                    muDays.add(dateStr)
+                } else {
+                    if (!groupsThisWeek.has(group)) {
+                        groupsThisWeek.add(group)
+                        addedToWeek = true
+                    }
+                    if (!periodAssignments[group]) {
+                        periodAssignments[group] = {}
+                    }
+                    previousDate = periodAssignments[group][period]
+                    periodAssignments[group][period] = date
+                }
+
+                // Recurse
+                if (
+                    this.solve(
+                        slots,
+                        index + 1,
+                        schedule,
+                        weeklyAssignments,
+                        periodAssignments,
+                        muDays,
+                        dayRule
+                    )
+                ) {
+                    return true
+                }
+
+                // BACKTRACK - restore state
                 dayEntry.lessons.pop()
+                if (dayEntry.lessons.length === 0) {
+                    schedule.pop()
+                }
+
+                if (group === "MU") {
+                    muDays.delete(dateStr)
+                } else {
+                    if (addedToWeek) {
+                        groupsThisWeek.delete(group)
+                    }
+                    if (previousDate !== null) {
+                        periodAssignments[group][period] = previousDate
+                    } else {
+                        delete periodAssignments[group][period]
+                    }
+                }
             }
         }
 
-        if (dayEntry.lessons.length === 0) schedule.pop()
-
-        return null
+        return false
     }
 
     buildSchedule() {
         const slots = this.generateAllSlots()
         if (slots.length === 0) return []
 
-        // --- FINAL IMPLEMENTATION: TWO-PASS BACKTRACKING ---
-        // 1. Attempt to solve with the ideal 28-day rule.
+        // Initialize state with shared mutable data structures
+        const weeklyAssignments = new Map()
+        const muDays = new Set()
+
+        // Deep copy initial assignments and convert dates
+        const periodAssignments = {}
+        for (const group in this.initialPeriodAssignments) {
+            periodAssignments[group] = {}
+            for (const period in this.initialPeriodAssignments[group]) {
+                periodAssignments[group][period] = new Date(
+                    this.initialPeriodAssignments[group][period]
+                )
+            }
+        }
+
         console.log(
             "Attempting to find a perfect schedule with a 28-day constraint..."
         )
-        let schedule = this.solve(slots, 0, [], 28)
 
-        // 2. If no solution is found, attempt again with the relaxed 21-day rule.
-        if (!schedule) {
-            console.log(
-                "No 28-day solution found. Attempting a high-quality schedule with a 21-day constraint..."
+        let schedule = []
+        if (
+            this.solve(
+                slots,
+                0,
+                schedule,
+                weeklyAssignments,
+                periodAssignments,
+                muDays,
+                28
             )
-            schedule = this.solve(slots, 0, [], 21)
+        ) {
+            return schedule
         }
 
-        return schedule || []
+        // Reset state for second attempt
+        schedule = []
+        weeklyAssignments.clear()
+        muDays.clear()
+
+        // Reset period assignments
+        for (const group in periodAssignments) {
+            for (const period in periodAssignments[group]) {
+                if (this.initialPeriodAssignments[group]?.[period]) {
+                    periodAssignments[group][period] = new Date(
+                        this.initialPeriodAssignments[group][period]
+                    )
+                } else {
+                    delete periodAssignments[group][period]
+                }
+            }
+        }
+
+        console.log(
+            "No 28-day solution found. Attempting a high-quality schedule with a 21-day constraint..."
+        )
+
+        if (
+            this.solve(
+                slots,
+                0,
+                schedule,
+                weeklyAssignments,
+                periodAssignments,
+                muDays,
+                21
+            )
+        ) {
+            return schedule
+        }
+
+        return []
     }
 }
