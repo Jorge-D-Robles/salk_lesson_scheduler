@@ -373,14 +373,35 @@ document.addEventListener("DOMContentLoaded", () => {
             return
         }
 
+        // --- CHANGE START: Robust Spacer Logic ---
+
+        // Helper function to get a unique ID for a calendar week (the date of its Monday).
+        const getWeekIdentifier = (d) => {
+            const newD = new Date(d)
+            newD.setHours(0, 0, 0, 0)
+            const day = newD.getDay()
+            const diff = newD.getDate() - day + (day === 0 ? -6 : 1) // Adjust for Sunday
+            return new Date(newD.setDate(diff)).toDateString()
+        }
+
+        // Initialize trackers for week and 4-week chronological periods.
+        let currentWeekIdentifier = getWeekIdentifier(schedule[0].date)
+        let fourWeekBoundary = new Date(schedule[0].date.getTime())
+        fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28) // Set first boundary 4 weeks from start.
+
         schedule.forEach((entry, index) => {
-            if (entry.date.getDay() === 1 && index > 0) {
+            // FIX #1: Insert weekly spacer if the week ID has changed.
+            // This is more robust than just checking for Mondays.
+            const entryWeekIdentifier = getWeekIdentifier(entry.date)
+            if (entryWeekIdentifier !== currentWeekIdentifier) {
                 const spacerRow = document.createElement("tr")
                 spacerRow.className = "bg-gray-200 weekly-spacer"
                 spacerRow.innerHTML = `<td colspan="12" class="py-1"></td>`
                 tableBody.appendChild(spacerRow)
+                currentWeekIdentifier = entryWeekIdentifier // Update the tracker
             }
 
+            // --- Original row rendering logic starts here ---
             const row = document.createElement("tr")
             const formattedDate = entry.date.toLocaleDateString(undefined, {
                 weekday: "short",
@@ -408,17 +429,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
             row.innerHTML = rowHTML
             tableBody.appendChild(row)
+            // --- Original row rendering logic ends here ---
 
-            const isEndOfCycle = (index + 1) % 20 === 0
+            // FIX #2: Check for chronological 4-week boundary crossing.
+            // This replaces the old logic that was based on the number of school days.
             const isNotLastDay = index + 1 < schedule.length
-
-            if (isEndOfCycle && isNotLastDay) {
-                const cycleSpacerRow = document.createElement("tr")
-                cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
-                cycleSpacerRow.innerHTML = `<td colspan="12" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Cycle ---</td>`
-                tableBody.appendChild(cycleSpacerRow)
+            if (isNotLastDay) {
+                const currentDate = entry.date
+                const nextDate = schedule[index + 1].date
+                // Check if the boundary is between the current day and the next scheduled day.
+                if (
+                    currentDate < fourWeekBoundary &&
+                    nextDate >= fourWeekBoundary
+                ) {
+                    const cycleSpacerRow = document.createElement("tr")
+                    cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
+                    // Updated text to be clearer as requested.
+                    cycleSpacerRow.innerHTML = `<td colspan="12" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Period ---</td>`
+                    tableBody.appendChild(cycleSpacerRow)
+                    // Set the next boundary 28 days from the last one to prevent drift.
+                    fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
+                }
             }
         })
+        // --- CHANGE END ---
     }
 
     function exportTableToCSV(filename) {
