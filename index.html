@@ -375,6 +375,20 @@
                 </p>
             </footer>
         </div>
+        <template id="day-off-template">
+            <div class="flex items-center space-x-2 mt-2">
+                <input
+                    type="date"
+                    class="day-off-input block w-full rounded-md border-gray-300 shadow-sm p-2"
+                />
+                <button
+                    type="button"
+                    class="remove-day-off bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-lg"
+                >
+                    -
+                </button>
+            </div>
+        </template>
         <script src="scheduler.js"></script>
         <script src="ui_logic.js"></script>
     </body>
