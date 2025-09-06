@@ -1,8 +1,15 @@
 /**
  * @file Manages all UI interactions for the Music Lesson Scheduler.
+ * This script is responsible for caching DOM elements, handling user input,
+ * validating data, triggering the scheduler, and rendering the results.
  */
 
 // --- Global UI Element Cache ---
+/**
+ * An object to hold references to all DOM elements used by the script,
+ * populated once the DOM is loaded.
+ * @type {Object}
+ */
 const ui = {
     form: null,
     generateBtn: null,
@@ -25,17 +32,19 @@ const ui = {
 // --- Function Definitions ---
 
 /**
- * Handles the main form submission to generate and display the schedule.
+ * Handles the main form submission event to generate and display the schedule.
  */
 function runScheduler() {
     ui.loadingIndicator.classList.remove("hidden")
     ui.scheduleOutput.classList.add("hidden")
     ui.generateBtn.disabled = true
 
+    // Use a small timeout to allow the browser to render the loading indicator
+    // before starting the potentially intensive scheduling task.
     setTimeout(() => {
         try {
             const params = getScheduleParameters()
-            if (!params) return // Validation failed
+            if (!params) return // Validation failed, so stop.
             const { startDate, dayCycle, daysOff, weeks, scheduleHistory } =
                 params
             const scheduleBuilder = new ScheduleBuilder(
@@ -55,7 +64,7 @@ function runScheduler() {
         } finally {
             ui.loadingIndicator.classList.add("hidden")
             ui.scheduleOutput.classList.remove("hidden")
-            runAllValidations()
+            runAllValidations() // Re-validate to update button state correctly.
         }
     }, 250)
 }
@@ -71,11 +80,11 @@ function checkStartDateWarning() {
     }
     const dateObj = new Date(dateValue + "T00:00:00")
     const day = dateObj.getDay()
-    ui.startDayWarning.classList.toggle("hidden", day === 1)
+    ui.startDayWarning.classList.toggle("hidden", day === 1) // Hidden if it IS a Monday
 }
 
 /**
- * Acts as the master validation controller.
+ * Acts as the master validation controller, orchestrating all input checks and UI feedback.
  */
 function runAllValidations() {
     ui.scheduleGapWarning.classList.add("hidden")
@@ -129,6 +138,7 @@ function runAllValidations() {
 
 /**
  * Enables or disables the 'Generate Schedule' button based on validation results.
+ * @param {string[]|null} [errors=null] - An array of error messages. If empty/null, the button is enabled.
  */
 function updateGenerateButtonState(errors = null) {
     if (!ui.historyCheckbox.checked) {
@@ -142,12 +152,15 @@ function updateGenerateButtonState(errors = null) {
 }
 
 /**
- * Parses a single line of text from the history textarea.
+ * Parses a single line of text from the history textarea, handling both TSV and CSV formats.
+ * @param {string} line - The line of text to parse.
+ * @returns {string[]} An array of column values.
  */
 function parseScheduleLine(line) {
     if (line.includes("\t")) {
-        return line.split("\t")
+        return line.split("\t") // Handle spreadsheet (tab-separated) paste
     } else {
+        // Handle CSV paste with potential quotes
         const columns = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || []
         return columns.map((col) => col.trim().replace(/^"|"$/g, ""))
     }
@@ -155,6 +168,8 @@ function parseScheduleLine(line) {
 
 /**
  * Performs a comprehensive validation of the pasted schedule history text.
+ * @param {string} text - The raw text from the history textarea.
+ * @returns {{errors: string[], uniqueGroupCount: number, maxDate: Date|null}} An object with validation results.
  */
 function validateHistory(text) {
     const errors = []
@@ -256,12 +271,12 @@ function validateHistory(text) {
             )
         }
     }
-
     return { errors, uniqueGroupCount: uniqueGroups.size, maxDate }
 }
 
 /**
- * Gathers all user inputs from the form and parses them.
+ * Gathers all user inputs from the form, validates them, and parses them into a parameter object.
+ * @returns {Object|null} An object with all schedule parameters, or null if validation fails.
  */
 function getScheduleParameters() {
     const startDate = ui.startDateInput.value
@@ -329,12 +344,12 @@ function getScheduleParameters() {
         }
         scheduleHistory = parsedHistory
     }
-
     return { startDate, dayCycle, daysOff, weeks, scheduleHistory }
 }
 
 /**
- * Renders the generated schedule into the HTML table.
+ * Renders the generated schedule into the HTML table, including visual spacers.
+ * @param {Array<ScheduleEntry>} schedule - The schedule array from ScheduleBuilder.
  */
 function displaySchedule(schedule) {
     ui.scheduleTableBody.innerHTML = ""
@@ -409,6 +424,7 @@ function displaySchedule(schedule) {
 
 /**
  * Converts the content of the HTML schedule table into a CSV formatted string.
+ * @param {string} filename - The desired name for the downloaded file.
  */
 function exportTableToCSV(filename) {
     const csv = []
@@ -436,7 +452,9 @@ function exportTableToCSV(filename) {
 }
 
 /**
- * Triggers a browser download for the given CSV content.
+ * Triggers a browser download for the given CSV content by creating a temporary Blob.
+ * @param {string} csv - The CSV content as a single string.
+ * @param {string} filename - The name of the file to be downloaded.
  */
 function downloadCSV(csv, filename) {
     const csvFile = new Blob([csv], { type: "text/csv" })
@@ -450,10 +468,11 @@ function downloadCSV(csv, filename) {
 }
 
 /**
- * The main entry point for the application. Caches DOM elements and attaches event listeners.
+ * The main entry point for the application. This function is called once the DOM is fully loaded.
+ * It caches DOM elements and attaches all necessary event listeners.
  */
 function initialize() {
-    // --- Cache all DOM elements into the ui object ---
+    // --- Cache all DOM elements into the ui object for efficient access ---
     ui.form = document.getElementById("schedule-form")
     ui.generateBtn = document.getElementById("generate-btn")
     ui.saveCsvBtn = document.getElementById("save-csv-btn")
@@ -502,6 +521,7 @@ function initialize() {
     })
 
     // --- Initial Page Setup ---
+    // Set the default start date to today.
     const today = new Date()
     ui.startDateInput.value = `${today.getFullYear()}-${String(
         today.getMonth() + 1
