@@ -106,8 +106,11 @@ This recursive method is the core of the algorithm. It systematically tries to p
 1.  **Base Case:** The recursion stops when a valid group has been placed in every single slot (`index >= slots.length`). This means a complete, valid schedule has been found, and the function returns `true`.
 
 2.  **Recursive Step:** For the current slot at `slots[index]`:
+
     a. **Candidate Selection:** It gets the list of all possible groups (`...this.LESSON_GROUPS, "MU"`).
+
     b. **Heuristic Optimization:** The candidates are sorted. This is a critical optimization. Groups that have gone the longest without an assignment in the current `period` are tried first. This heuristic helps the solver find a valid path more quickly by addressing the most constrained assignments first.
+
     c. **Constraint Checking:** It iterates through each candidate group and checks if placing it in the current slot violates any rules:
     \* **Weekly Rule:** A group cannot have more than one lesson in the same week.
     ` javascript // weeklyAssignments is a Map<weekId, Set<group>> if (groupsThisWeek.has(group)) isValid = false;  `
