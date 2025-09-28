@@ -1,10 +1,26 @@
+Of course. Here is the updated documentation with a new introduction explaining the real-world problem the scheduler is designed to solve.
+
+-----
+
 # Scheduling Algorithm Explanation
 
-## Introduction
+## Introduction: The Scheduling Problem
 
-This document provides a complete technical explanation of the scheduling algorithm implemented in `scheduler.js`.
+The instrumental music program at Jonas E. Salk Middle School requires a complex scheduling solution for student pull-out lessons. The core challenge is to create a fair and consistent schedule that accommodates the school's unique structure while minimizing disruption to students' academic classes.
 
-The algorithm is a backtracking solver designed to address a complex **Constraint Satisfaction Problem (CSP)**. Its primary goal is to assign lesson groups to a predefined set of available time slots over several weeks, adhering to a strict set of scheduling rules. It is optimized with heuristics and a two-pass strategy to efficiently find a high-quality, valid schedule.
+The problem is defined by a specific set of real-world constraints:
+
+  * **Two-Day Cycle:** The school operates on a two-day rotating cycle, with a different number of available lesson periods on Day 1 versus Day 2.
+  * **Weekly Lesson Frequency:** Each of the 22 student lesson groups must be scheduled for exactly one lesson per week.
+  * **Academic Class Protection:** To prevent students from repeatedly missing the same academic class, a student group cannot be pulled from the same class period more than once per month. This is a critical constraint.
+  * **The "MU" (Make-Up) Slot:** The two-day cycle results in an uneven number of available lesson slots from one week to the next. To resolve this and ensure all 22 groups are scheduled weekly, a special "MU" (Make-Up) slot was introduced. This acts as a flexible filler period for extra help or missed lessons.
+  * **Make-Up Slot Rules:** To maintain schedule consistency, MU slots are limited to a maximum of one per day.
+
+This algorithm is designed to navigate these constraints and produce an optimal, conflict-free schedule for the entire school year.
+
+## Technical Overview
+
+This document provides a complete technical explanation of the scheduling algorithm implemented in `scheduler.js`. The algorithm is a backtracking solver designed to address a complex **Constraint Satisfaction Problem (CSP)**. Its primary goal is to assign lesson groups to a predefined set of available time slots over several weeks, adhering to a strict set of scheduling rules. It is optimized with heuristics and a two-pass strategy to efficiently find a high-quality, valid schedule.
 
 ## Algorithm Architecture
 
@@ -17,8 +33,8 @@ The system is architected around two main classes: `ScheduleEntry` for data stor
 The process begins in the `ScheduleBuilder` constructor, which sets up the entire problem space and its initial state.
 
   * **Problem Parameters:** It configures the start date, the number of weeks to schedule, and a list of non-school days (`daysOff`).
-  * **Domain of Variables:** It establishes the set of possible values for each time slot, which are the 22 lesson groups ('A' through 'V') and a special 'MU' (makeup) group.
-  * **Historical Context:** A key feature is its ability to process a `scheduleHistory`. This allows the new schedule to be a logical continuation of a previous one. The `_populateAssignmentsFromHistory` method is called to parse this history and record the last date each group was assigned to a specific period. This prevents, for example, Group 'C' from having a lesson in Period 1 on the last day of the old schedule and again in Period 1 on the first day of the new schedule.
+  * **Domain of Variables:** It establishes the set of possible values for each time slot, which are the 22 lesson groups and a special 'MU' (makeup) group.
+  * **Historical Context:** A key feature is its ability to process a `scheduleHistory`. This allows the new schedule to be a logical continuation of a previous one. The `_populateAssignmentsFromHistory` method is called to parse this history and record the last date each group was assigned to a specific period.
 
 <!-- end list -->
 
@@ -46,13 +62,7 @@ class ScheduleBuilder {
         if (scheduleHistory)
             this._populateAssignmentsFromHistory(scheduleHistory);
     }
-
-    _populateAssignmentsFromHistory(history) {
-        history.forEach((lesson) => {
-            // ... logic to find the most recent assignment date
-            // for each group in each period ...
-        });
-    }
+    // ...
 }
 ```
 
@@ -72,20 +82,13 @@ generateAllSlots() {
     // ... setup endDate ...
 
     while (currentDate < endDate) {
-        const isWeekday = /*...*/;
-        const isDayOff = /*...*/;
-
+        // ...
         if (isWeekday && !isDayOff) {
             // Determines periods based on the school's day cycle
             const periods =
                 currentDayCycle % 2 !== 0 ? [1, 4, 7, 8] : [1, 2, 3, 7, 8];
             periods.forEach((p) => {
-                slots.push({
-                    date: new Date(currentDate.getTime()),
-                    period: p,
-                    group: null, // To be filled by the solver
-                    dayCycle: currentDayCycle,
-                });
+                slots.push({ /* ... */ });
             });
             currentDayCycle++;
         }
@@ -103,68 +106,28 @@ This recursive method is the core of the algorithm. It systematically tries to p
 
 #### The Recursive Logic
 
-1.  **Base Case:** The recursion stops when a valid group has been placed in every single slot (`index >= slots.length`). This means a complete, valid schedule has been found, and the function returns `true`.
+1.  **Base Case:** The recursion stops when a valid group has been placed in every single slot (`index >= slots.length`).
 
 2.  **Recursive Step:** For the current slot at `slots[index]`:
 
-    a. **Candidate Selection:** It gets the list of all possible groups (`...this.LESSON_GROUPS, "MU"`).
+    a. **Candidate Selection & Heuristic:** It gets all possible groups and sorts them so that groups that have gone the longest without a lesson in the current period are tried first. This heuristic helps find a valid path more quickly.
 
-    b. **Heuristic Optimization:** The candidates are sorted. This is a critical optimization. Groups that have gone the longest without an assignment in the current `period` are tried first. This heuristic helps the solver find a valid path more quickly by addressing the most constrained assignments first.
+    b. **Constraint Checking:** It iterates through each candidate group and checks if placing it in the current slot violates any rules:
 
-    c. **Constraint Checking:** It iterates through each candidate group and checks if placing it in the current slot violates any rules:
+      * **Weekly Rule:** A group cannot have more than one lesson in the same week.
+      * **Period Separation Rule:** A group cannot be assigned to the same period if its last assignment was less than `dayRule` days ago (e.g., 28 or 21 days).
+      * **Makeup ('MU') Rule:** The 'MU' group can only appear once on any given day. This is validated in the `assertNoMUClustering` helper function.
 
-    \* **Weekly Rule:** A group cannot have more than one lesson in the same week.
-    ` javascript // weeklyAssignments is a Map<weekId, Set<group>> if (groupsThisWeek.has(group)) isValid = false;  `
-
-    \* **Period Separation Rule:** A group cannot be assigned to the same period if its last assignment in that period was less than `dayRule` days ago.
-    ` javascript // periodAssignments is an Object { group: { period: date } } const lastDate = periodAssignments[group]?.[period]; if ( lastDate && (date - lastDate) / (1000 * 60 * 60 * 24) < dayRule ) { isValid = false; }  `
-
-    \* **Makeup ('MU') Rule:** The 'MU' group can only appear once on any given day.
-    ` javascript // muDays is a Set of date strings if (muPlacedToday) isValid = false;  `
-
-    d. **Make a Move:** If the placement is valid, the algorithm commits the choice temporarily:
-    \* The lesson is added to the `schedule` object.
-    \* The state trackers (`weeklyAssignments`, `periodAssignments`, `muDays`) are updated.
-
-    e. **Recurse:** It calls itself to solve for the next slot: `this.solve(slots, index + 1, ...)`
-    \* If this recursive call returns `true`, it means a full solution was found down the line, so this `true` is passed all the way up the call stack.
-
-    f. **Backtrack:** If the recursive call returns `false` (indicating a dead end), the algorithm undoes the choice it just made. This is the "backtracking" step. It reverts the `schedule` and all state trackers to their previous state, effectively pretending the last choice never happened.
-
-    ````
-    ```javascript
-    // BACKTRACK - restore state
-    dayEntry.lessons.pop();
-    if (dayEntry.lessons.length === 0) {
-        schedule.pop();
-    }
-
-    if (group === "MU") {
-        muDays.delete(dateStr);
-    } else {
-        if (addedToWeek) {
-            groupsThisWeek.delete(group);
-        }
-        // Revert the period assignment to its previous date or remove it
-        if (previousDate !== null) {
-            periodAssignments[group][period] = previousDate;
-        } else {
-            delete periodAssignments[group][period];
-        }
-    }
-    ```
-    ````
-
-    g. **Failure:** If the loop finishes without any candidate leading to a solution, the function returns `false`, triggering a backtrack in the previous call.
+    c. **Recurse & Backtrack:** If the placement is valid, the algorithm calls itself to solve for the next slot. If that path fails, it "backtracks" by undoing the choice and trying the next candidate group.
 
 -----
 
 ### The Orchestrator (`buildSchedule`)
 
-This is the public-facing method that controls the solving process. It employs a two-pass strategy to ensure the highest quality schedule.
+This is the public-facing method that controls the solving process. It employs a two-pass strategy.
 
-1.  **"Perfect" Attempt:** It first calls `solve` with a strict `dayRule` of **28**. This attempts to find an ideal schedule where period repetitions are spaced out as much as possible.
-2.  **"High-Quality" Fallback:** If the 28-day constraint proves impossible and the solver returns `false`, the method resets the state and tries again with a more relaxed `dayRule` of **21**. This increases the likelihood of finding a valid solution, even if it's not theoretically perfect.
+1.  **"Perfect" Attempt:** It first calls `solve` with a strict `dayRule` of **28**.
+2.  **"High-Quality" Fallback:** If the 28-day constraint proves impossible, the method resets and tries again with a more relaxed `dayRule` of **21**.
 
 <!-- end list -->
 
@@ -174,15 +137,12 @@ buildSchedule() {
     // ... state initialization ...
 
     console.log("Attempting to find a perfect schedule with a 28-day constraint...");
-    let schedule = [];
     if (this.solve(/*...,*/ 28)) {
         return schedule; // Success!
     }
 
     // Reset state for the second attempt
-    schedule = [];
-    // ... logic to reset weeklyAssignments, muDays, and periodAssignments ...
-
+    // ...
     console.log("No 28-day solution found. Attempting a high-quality schedule with a 21-day constraint...");
     if (this.solve(/*...,*/ 21)) {
         return schedule; // Success on the second try
@@ -191,40 +151,3 @@ buildSchedule() {
     return []; // No solution found
 }
 ```
-
-## Complexity Analysis
-
-The algorithm's complexity is exponential in the worst-case for time and linear for space.
-
-Let **N** be the number of time slots to be filled.
-Let **G** be the number of lesson groups (the domain size, \~23 in this case).
-
------
-
-### Time Complexity: O(G^N \* (G log G))
-
-The time complexity is a product of the search space size and the work done at each step.
-
-  * **`O(G^N)` - The Search Space:** In a worst-case scenario, the algorithm behaves like a brute-force search. For each of the **N** slots, it might have to try all **G** groups. This creates a decision tree of depth **N** with a branching factor of **G**, leading to `G^N` possible combinations.
-  * **`O(G log G)` - Work Per Step:** At each recursive call (each node in the search tree), the algorithm performs several operations. The most expensive one is sorting the candidate groups to apply the heuristic:
-    ```javascript
-    candidates.sort((a, b) => { ... });
-    ```
-    Sorting a list of size **G** has a complexity of `O(G log G)`.
-
-**Important Caveat:** This `O(G^N)` complexity represents the absolute worst-case scenario. In practice, the algorithm is significantly faster due to **pruning**. Every time a constraint check fails, the algorithm prunes an entire branch of the search tree, preventing it from exploring millions of invalid combinations. The actual performance depends heavily on how restrictive the constraints are.
-
------
-
-### Space Complexity: O(N + G)
-
-The space complexity is determined by the memory required for the recursion stack and the data structures used to store the state.
-
-1.  **Recursion Stack Depth (`O(N)`):** The `solve` function calls itself for each slot. The maximum depth of this recursion is **N**, so the call stack will consume `O(N)` space.
-
-2.  **Data Structures (`O(N + G)`):**
-
-      * The `slots` array and the final `schedule` array are both proportional to the number of slots, requiring `O(N)` space.
-      * The state-tracking structures (`weeklyAssignments`, `muDays`, and `periodAssignments`) also scale linearly. For example, `weeklyAssignments` stores an entry for each of the **N** lessons placed, and `periodAssignments` stores at most one entry for each of the **G** groups per period. Their combined size is `O(N + G)`.
-
-Since all components scale linearly with either **N** or **G**, the total space complexity is **`O(N + G)`**.

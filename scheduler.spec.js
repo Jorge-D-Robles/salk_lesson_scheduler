@@ -6,10 +6,8 @@
  */
 const assertNo28DayConflicts = (schedule, initialAssignments = {}) => {
     const oneDayInMilliseconds = 1000 * 60 * 60 * 24
-    // Deep copy the initial assignments to avoid modifying the original object during the test.
     const lastSeen = JSON.parse(JSON.stringify(initialAssignments))
 
-    // Convert date strings in lastSeen back to Date objects for accurate comparison.
     for (const group in lastSeen) {
         for (const period in lastSeen[group]) {
             lastSeen[group][period] = new Date(lastSeen[group][period])
@@ -19,15 +17,9 @@ const assertNo28DayConflicts = (schedule, initialAssignments = {}) => {
     schedule.forEach((dayEntry) => {
         dayEntry.lessons.forEach((lesson) => {
             const { group, period } = lesson
+            if (group.startsWith("MU")) return
 
-            if (group.startsWith("MU")) {
-                return
-            }
-
-            if (!lastSeen[group]) {
-                lastSeen[group] = {}
-            }
-
+            if (!lastSeen[group]) lastSeen[group] = {}
             const lastTimeInPeriod = lastSeen[group][period]
 
             if (lastTimeInPeriod) {
@@ -35,13 +27,11 @@ const assertNo28DayConflicts = (schedule, initialAssignments = {}) => {
                 const differenceInDays = Math.floor(
                     differenceInMs / oneDayInMilliseconds
                 )
-
                 expect(differenceInDays).toBeGreaterThanOrEqual(
                     28,
                     `Conflict: Group ${group} was scheduled for ${period} on ${dayEntry.date.toDateString()}, only ${differenceInDays} days after its last session on ${lastTimeInPeriod.toDateString()}.`
                 )
             }
-            // Update the last seen date for this group/period combination.
             lastSeen[group][period] = dayEntry.date
         })
     })
@@ -55,19 +45,16 @@ const assertNoWeeklyConflicts = (schedule) => {
     if (schedule.length === 0) return
 
     let weeklyGroups = new Set()
-    let currentWeekIdentifier = null // Use the date of the week's Monday as a unique ID
+    let currentWeekIdentifier = null
 
     schedule.forEach((dayEntry) => {
         const currentDate = dayEntry.date
-
-        // Robustly determine the Monday of the current week to identify it.
-        const dayOfWeek = currentDate.getDay() // 0=Sun, 1=Mon...
+        const dayOfWeek = currentDate.getDay()
         const offset = dayOfWeek === 0 ? 6 : dayOfWeek - 1
         const mondayOfThisWeek = new Date(currentDate)
         mondayOfThisWeek.setDate(currentDate.getDate() - offset)
         const mondayDateString = mondayOfThisWeek.toDateString()
 
-        // If the current day is in a new week, reset the weekly group tracker.
         if (mondayDateString !== currentWeekIdentifier) {
             weeklyGroups.clear()
             currentWeekIdentifier = mondayDateString
@@ -75,28 +62,19 @@ const assertNoWeeklyConflicts = (schedule) => {
 
         dayEntry.lessons.forEach((lesson) => {
             const { group } = lesson
-            // "MU" (Make-Up) groups are ignored as they aren't real assignments.
-            if (group === "MU") {
-                return
-            }
+            if (group === "MU") return
 
-            // Assert that the group has not been seen before in the current week.
             expect(weeklyGroups.has(group)).toBe(
                 false,
                 `Weekly Conflict: Group '${group}' was scheduled twice in the week of ${currentWeekIdentifier}. A second time on ${currentDate.toDateString()}.`
             )
-
-            // Add the group to the set for the current week.
             weeklyGroups.add(group)
         })
     })
 }
 
 /**
- * NEW HELPER FUNCTION
  * Helper function to assert MU (Make-Up) scheduling constraints.
- * 1. No more than one MU per day.
- * 2. Absolutely no back-to-back MUs on the same day.
  * @param {Array<ScheduleEntry>} schedule The generated schedule to test.
  */
 const assertNoMUClustering = (schedule) => {
@@ -108,18 +86,15 @@ const assertNoMUClustering = (schedule) => {
         for (let i = 0; i < lessons.length; i++) {
             if (lessons[i].group.startsWith("MU")) {
                 muCount++
-                // Check for back-to-back MU
                 if (i > 0 && lessons[i - 1].group.startsWith("MU")) {
                     hasBackToBackMU = true
                 }
             }
         }
-
         expect(muCount).toBeLessThanOrEqual(
             1,
             `MU Clustering: Found ${muCount} MUs on ${dayEntry.date.toDateString()}. Expected 1 or 0.`
         )
-
         expect(hasBackToBackMU).toBe(
             false,
             `Back-to-back MU: Found consecutive MUs on ${dayEntry.date.toDateString()}.`
@@ -127,10 +102,114 @@ const assertNoMUClustering = (schedule) => {
     })
 }
 
+/**
+ * Asserts that the schedule is balanced. It checks that the difference in the
+ * total number of lessons between the most-scheduled and least-scheduled group
+ * is within an acceptable tolerance.
+ * @param {Array<ScheduleEntry>} schedule The generated schedule to test.
+ */
+const assertBalancedUsage = (schedule) => {
+    const groupCounts = new Map()
+
+    schedule.forEach((day) => {
+        day.lessons.forEach((lesson) => {
+            if (lesson.group !== "MU") {
+                groupCounts.set(
+                    lesson.group,
+                    (groupCounts.get(lesson.group) || 0) + 1
+                )
+            }
+        })
+    })
+
+    if (groupCounts.size === 0) {
+        return
+    }
+
+    let minCount = Infinity
+    let maxCount = 0
+    let minGroup = ""
+    let maxGroup = ""
+
+    for (const [group, count] of groupCounts.entries()) {
+        if (count > maxCount) {
+            maxCount = count
+            maxGroup = group
+        }
+        if (count < minCount) {
+            minCount = count
+            minGroup = group
+        }
+    }
+
+    const allCounts = [...groupCounts.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([g, c]) => `${g}: ${c}`)
+        .join(", ")
+    const failureDetails = `Usage Imbalance: Group '${maxGroup}' was scheduled ${maxCount} times, while group '${minGroup}' was only scheduled ${minCount} times.
+    Full Distribution: { ${allCounts} }`
+
+    const ACCEPTABLE_DIFFERENCE = 2
+    expect(maxCount - minCount).toBeLessThanOrEqual(
+        ACCEPTABLE_DIFFERENCE,
+        failureDetails
+    )
+}
+
+/**
+ * Asserts that between any two occurrences of a group, all other groups have appeared at least once.
+ * This enforces the "full cycle" requirement.
+ * @param {Array<ScheduleEntry>} schedule The generated schedule to test.
+ * @param {Array<string>} allGroups The list of all possible groups that should be in a cycle.
+ */
+const assertAllGroupsAppearBetweenRepetitions = (schedule, allGroups) => {
+    const lessonGroups = schedule
+        .flatMap((day) => day.lessons)
+        .filter((l) => l.group !== "MU")
+        .map((l) => l.group)
+
+    const totalGroups = allGroups.length
+    if (lessonGroups.length <= totalGroups) {
+        return // Not enough lessons to have a repetition, so test passes.
+    }
+
+    const groupIndices = new Map()
+    allGroups.forEach((g) => groupIndices.set(g, []))
+    lessonGroups.forEach((g, i) => {
+        if (groupIndices.has(g)) {
+            groupIndices.get(g).push(i)
+        }
+    })
+
+    for (const [group, indices] of groupIndices.entries()) {
+        if (indices.length > 1) {
+            for (let i = 0; i < indices.length - 1; i++) {
+                const start = indices[i]
+                const end = indices[i + 1]
+                const subArray = lessonGroups.slice(start + 1, end)
+                const groupsInBetween = new Set(subArray)
+
+                // Check if the number of unique groups between the two occurrences
+                // is equal to the total number of other groups.
+                const expectedGroupsInBetween = allGroups.filter(
+                    (g) => g !== group
+                )
+                const missingGroups = expectedGroupsInBetween.filter(
+                    (g) => !groupsInBetween.has(g)
+                )
+
+                expect(missingGroups.length).toBe(
+                    0,
+                    `Repetition Error for Group '${group}': Last seen at index ${start}, it repeated at index ${end}. However, the following groups were NOT scheduled in between: [${missingGroups.join(", ")}].`
+                )
+            }
+        }
+    }
+}
+
 describe("ScheduleBuilder", () => {
     describe("Default Schedule (No History) - Thorough Permutations", () => {
         const thoroughDateTestCases = [
-            // Basic Cases
             {
                 description: "on a Monday with no days off",
                 startDate: "2025-09-01",
@@ -141,7 +220,6 @@ describe("ScheduleBuilder", () => {
                 startDate: "2025-09-03",
                 daysOff: ["2025-09-10", "2025-09-15"],
             },
-            // Complex Day Off Cases
             {
                 description: "with a single Monday off",
                 startDate: "2025-09-01",
@@ -199,12 +277,69 @@ describe("ScheduleBuilder", () => {
                         dateCase.startDate,
                         startCycle,
                         dateCase.daysOff,
-                        16, // weeks
-                        null // No history
+                        16,
+                        null
                     )
                     const schedule = scheduleBuilder.buildSchedule()
                     assertNo28DayConflicts(schedule)
                     assertNoWeeklyConflicts(schedule)
+                    assertBalancedUsage(schedule)
+                    assertAllGroupsAppearBetweenRepetitions(
+                        schedule,
+                        scheduleBuilder.LESSON_GROUPS
+                    )
+                })
+            })
+        })
+    })
+
+    // --- NEW TEST SUITE ADDED ---
+    describe("Extreme Edge Case Permutations", () => {
+        const extremeTestCases = [
+            {
+                description: "with a 'funnel week' (only Wednesday available)",
+                startDate: "2025-11-10",
+                daysOff: [
+                    "2025-11-10",
+                    "2025-11-11",
+                    "2025-11-13",
+                    "2025-11-14",
+                ], // Mon, Tue, Thu, Fri off
+            },
+            {
+                description: "with a 'holiday gauntlet' of scattered days off",
+                startDate: "2025-11-17",
+                daysOff: [
+                    "2025-11-27",
+                    "2025-11-28", // Thanksgiving week
+                    "2025-12-05", // Random Friday off
+                    "2025-12-22",
+                    "2025-12-23",
+                    "2025-12-24",
+                    "2025-12-25",
+                    "2025-12-26", // Winter break start
+                ],
+            },
+        ]
+
+        extremeTestCases.forEach((testCase) => {
+            ;[1, 2].forEach((startCycle) => {
+                it(`should remain balanced and valid when starting ${testCase.description}, on Day ${startCycle}`, () => {
+                    const scheduleBuilder = new ScheduleBuilder(
+                        testCase.startDate,
+                        startCycle,
+                        testCase.daysOff,
+                        20, // Longer schedule to feel the impact
+                        null
+                    )
+                    const schedule = scheduleBuilder.buildSchedule()
+                    assertNo28DayConflicts(schedule)
+                    assertNoWeeklyConflicts(schedule)
+                    assertBalancedUsage(schedule)
+                    assertAllGroupsAppearBetweenRepetitions(
+                        schedule,
+                        scheduleBuilder.LESSON_GROUPS
+                    )
                 })
             })
         })
@@ -220,7 +355,6 @@ describe("ScheduleBuilder", () => {
     })
 
     describe("Schedule with History", () => {
-        // --- Test Setup: Helper to create valid history data ---
         const FULL_GROUP_LIST = [
             "Flutes",
             "Clarinets",
@@ -269,10 +403,8 @@ describe("ScheduleBuilder", () => {
             return baseHistory
         }
 
-        // --- Basic History Integrity Tests ---
         it("should correctly identify the 22 groups from a history with duplicates", () => {
             const historyData = createFullBaseHistory("2025-08-01")
-            // Add a duplicate entry
             historyData.push({ date: "2025-08-04", period: 5, group: "Flutes" })
             const scheduleBuilder = new ScheduleBuilder(
                 "2025-09-01",
@@ -289,17 +421,8 @@ describe("ScheduleBuilder", () => {
 
         it("should correctly populate its state with the MOST RECENT lesson from history", () => {
             const historyData = createFullBaseHistory("2025-08-01")
-            // Add two conflicting entries for Flutes/Pd1. The builder should use the latest one.
-            historyData.push({
-                date: "2025-08-11",
-                period: 1,
-                group: "Flutes",
-            })
-            historyData.push({
-                date: "2025-08-25",
-                period: 1,
-                group: "Flutes",
-            })
+            historyData.push({ date: "2025-08-11", period: 1, group: "Flutes" })
+            historyData.push({ date: "2025-08-25", period: 1, group: "Flutes" })
             const scheduleBuilder = new ScheduleBuilder(
                 "2025-09-01",
                 1,
@@ -324,7 +447,6 @@ describe("ScheduleBuilder", () => {
             expect(builder2.LESSON_GROUPS).toEqual(defaultGroups)
         })
 
-        // --- Exhaustive History Conflict Permutations ---
         describe("when checking for conflicts with exhaustive permutations", () => {
             const exhaustiveHistoryCases = [
                 {
@@ -381,7 +503,7 @@ describe("ScheduleBuilder", () => {
                 {
                     description:
                         "when the schedule crosses a leap day boundary with history",
-                    newScheduleStart: "2028-03-13", // Monday, >28 days after last history entry
+                    newScheduleStart: "2028-03-13",
                     daysOff: [],
                     history: createFullBaseHistory("2028-02-01"),
                 },
@@ -394,7 +516,7 @@ describe("ScheduleBuilder", () => {
                             testCase.newScheduleStart,
                             startCycle,
                             testCase.daysOff,
-                            8, // weeks
+                            8,
                             testCase.history
                         )
                         const schedule = scheduleBuilder.buildSchedule()
@@ -403,6 +525,11 @@ describe("ScheduleBuilder", () => {
                             scheduleBuilder.periodAssignments
                         )
                         assertNoWeeklyConflicts(schedule)
+                        assertBalancedUsage(schedule)
+                        assertAllGroupsAppearBetweenRepetitions(
+                            schedule,
+                            scheduleBuilder.LESSON_GROUPS
+                        )
                     })
                 })
             })
@@ -442,49 +569,57 @@ describe("ScheduleBuilder", () => {
             })
             assertNo28DayConflicts(schedule)
             assertNoWeeklyConflicts(schedule)
+            assertBalancedUsage(schedule)
+            assertAllGroupsAppearBetweenRepetitions(
+                schedule,
+                scheduleBuilder.LESSON_GROUPS
+            )
         })
     })
 
-    // --- NEW TEST SUITE FOR MU RULES ---
     describe("MU (Make-Up) Scheduling Rules", () => {
         it("should not schedule more than one MU per day or any back-to-back MUs in a long-term schedule with all constraints", () => {
-            // This test uses a long duration to increase the chance of natural MU scenarios.
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01", // Start Date
-                1, // Start Cycle
-                [], // Days Off
-                40, // Weeks (Full school year)
-                null // No History
+                "2025-09-01",
+                1,
+                [],
+                40,
+                null
             )
             const schedule = scheduleBuilder.buildSchedule()
             assertNoMUClustering(schedule)
-            assertNoWeeklyConflicts(schedule) // Weekly rule should still hold in normal cases
-            assertNo28DayConflicts(schedule) // 28-Day rule should still hold
+            assertNoWeeklyConflicts(schedule)
+            assertNo28DayConflicts(schedule)
+            assertBalancedUsage(schedule)
+            assertAllGroupsAppearBetweenRepetitions(
+                schedule,
+                scheduleBuilder.LESSON_GROUPS
+            )
         })
+
         it("should not schedule more than one MU per day or any back-to-back MUs, not checking for other constraints", () => {
-            // This test uses a long duration to increase the chance of natural MU scenarios.
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01", // Start Date
-                1, // Start Cycle
-                [], // Days Off
-                40, // Weeks (Full school year)
-                null // No History
+                "2025-09-01",
+                1,
+                [],
+                40,
+                null
             )
             const schedule = scheduleBuilder.buildSchedule()
             assertNoMUClustering(schedule)
         })
+
         it("should not schedule more than one MU per day or any back-to-back MUs in a long-term schedule, but breaks the 28 day rule", () => {
-            // This test uses a long duration to increase the chance of natural MU scenarios.
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01", // Start Date
-                1, // Start Cycle
-                [], // Days Off
-                40, // Weeks (Full school year)
-                null // No History
+                "2025-09-01",
+                1,
+                [],
+                40,
+                null
             )
             const schedule = scheduleBuilder.buildSchedule()
             assertNoMUClustering(schedule)
-            assertNoWeeklyConflicts(schedule) // Weekly rule should still hold in normal cases
+            assertNoWeeklyConflicts(schedule)
         })
     })
 })
