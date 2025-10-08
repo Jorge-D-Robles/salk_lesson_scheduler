@@ -1,7 +1,3 @@
-Of course. Here is the updated documentation with a new introduction explaining the real-world problem the scheduler is designed to solve.
-
------
-
 # Scheduling Algorithm Explanation
 
 ## Introduction: The Scheduling Problem
