@@ -1,52 +1,26 @@
 /**
- * @file Contains the core backtracking algorithm for generating the music lesson schedule.
- * It is responsible for the pure, stateful logic of schedule creation, independent of the UI.
+ * @file Contains the core scheduling algorithm for generating the music lesson schedule.
+ * It uses a constructive cycle-based approach with within-day reordering
+ * to maintain full-cycle fairness across all groups.
  */
 
 // --- Constants for Scheduling Rules ---
-/** The ideal minimum number of days between lessons for the same group/period. */
 const PERFECT_SCHEDULE_DAY_RULE = 28
-/** The absolute minimum number of days between lessons for the same group/period. */
 const HIGH_QUALITY_DAY_RULE = 21
-/** The required number of unique, non-MU (Make-Up) groups in a valid schedule history. */
 const REQUIRED_UNIQUE_GROUPS = 22
 
-/**
- * Represents a single day in the schedule, containing the date, day cycle, and scheduled lessons.
- * @class
- */
 class ScheduleEntry {
     constructor(date, dayCycle) {
-        /** @type {Date} The date for this entry. */
         this.date = date
-        /** @type {number} The day cycle (1 or 2) for this entry. */
         this.dayCycle = dayCycle
-        /** @type {Array<Object>} A list of lessons for this day. */
         this.lessons = []
     }
-    /**
-     * Adds a lesson to this day's schedule.
-     * @param {number} period - The lesson period number.
-     * @param {string} group - The name of the group.
-     */
     addLesson(period, group) {
         this.lessons.push({ period: `Pd ${period}`, group })
     }
 }
 
-/**
- * Builds the schedule using an optimized backtracking algorithm.
- * This class encapsulates all the state and logic needed to generate a valid schedule.
- * @class
- */
 class ScheduleBuilder {
-    /**
-     * @param {string} startDate - The start date in "YYYY-MM-DD" format.
-     * @param {number} dayCycle - The starting day cycle (1 or 2).
-     * @param {string[]} daysOff - An array of dates to exclude, in "YYYY-MM-DD" format.
-     * @param {number} weeks - The number of weeks to generate the schedule for.
-     * @param {Array<Object>|null} scheduleHistory - Parsed historical schedule data.
-     */
     constructor(startDate, dayCycle, daysOff, weeks, scheduleHistory = null) {
         const startParts = startDate.split("-")
         this.startDate = new Date(
@@ -64,7 +38,6 @@ class ScheduleBuilder {
             .filter(Boolean)
         this.weeks = weeks
 
-        // Determine the list of lesson groups from history or use a default set.
         if (
             scheduleHistory &&
             Array.isArray(scheduleHistory) &&
@@ -95,11 +68,6 @@ class ScheduleBuilder {
             this._populateAssignmentsFromHistory(scheduleHistory)
     }
 
-    /**
-     * Processes the schedule history to find the most recent lesson for each group/period combination.
-     * @private
-     * @param {Array<Object>} history - The raw historical data.
-     */
     _populateAssignmentsFromHistory(history) {
         history.forEach((lesson) => {
             if (
@@ -126,11 +94,6 @@ class ScheduleBuilder {
         })
     }
 
-    /**
-     * Generates a flat list of all available lesson slots (date/period combinations)
-     * based on the start date, weeks, and days off.
-     * @returns {Array<Object>} A list of all available slots to be filled.
-     */
     generateAllSlots() {
         const slots = []
         let currentDate = new Date(this.startDate.getTime())
@@ -160,11 +123,6 @@ class ScheduleBuilder {
         return slots
     }
 
-    /**
-     * Gets a unique string identifier for the calendar week of a given date (specifically, the date of that week's Monday).
-     * @param {Date} d - The date to get the week identifier for.
-     * @returns {string} The date string of the Monday of that week.
-     */
     getWeekIdentifier(d) {
         const newD = new Date(d)
         newD.setHours(0, 0, 0, 0)
@@ -173,222 +131,215 @@ class ScheduleBuilder {
         return new Date(newD.setDate(diff)).toDateString()
     }
 
-    /**
-     * Checks if a given group can be validly placed in a specific time slot based on all scheduling rules.
-     * @private
-     * @param {string} group - The group to check.
-     * @param {Object} slot - The slot to place the group in.
-     * @param {Map<string, Set<string>>} weeklyAssignments - Current weekly assignments.
-     * @param {Object} periodAssignments - Current period assignments.
-     * @param {Set<string>} muDays - A set of dates that already have a Make-Up lesson.
-     * @param {number} dayRule - The minimum number of days between lessons.
-     * @returns {boolean} True if the placement is valid, false otherwise.
-     */
-    _isGroupValidForSlot(
-        group,
-        slot,
-        weeklyAssignments,
-        periodAssignments,
-        muDays,
-        dayRule
-    ) {
-        const { date, period } = slot
-        const dateStr = date.toDateString()
-        const weekId = this.getWeekIdentifier(date)
-
-        if (group === "MU") {
-            // Rule: Only one MU per day.
-            return !muDays.has(dateStr)
-        }
-        // Rule: Group can't have more than one lesson per week.
-        if (weeklyAssignments.get(weekId)?.has(group)) {
-            return false
-        }
-        // Rule: Lesson for the same group/period must be `dayRule` days apart.
-        const lastDate = periodAssignments[group]?.[period]
-        if (lastDate && (date - lastDate) / (1000 * 60 * 60 * 24) < dayRule) {
-            return false
-        }
-        return true
-    }
-
-    /**
-     * The core recursive backtracking function that attempts to solve the schedule.
-     * @private
-     * @returns {boolean} True if a solution was found, false otherwise.
-     */
-    solve(
-        slots,
-        index,
-        schedule,
-        weeklyAssignments,
-        periodAssignments,
-        muDays,
-        dayRule
-    ) {
-        if (index >= slots.length) return true // Base case: successfully filled all slots
-
-        const slot = slots[index]
-        const { date, period, dayCycle } = slot
-        const dateStr = date.toDateString()
-        const weekId = this.getWeekIdentifier(date)
-        if (!weeklyAssignments.has(weekId))
-            weeklyAssignments.set(weekId, new Set())
-
-        // Prioritize candidates that haven't had a lesson in the longest time.
-        const candidates = [...this.LESSON_GROUPS, "MU"]
-        candidates.sort((a, b) => {
-            if (a === "MU") return 1
-            if (b === "MU") return -1
-            const lastDateA = periodAssignments[a]?.[period] || new Date(0)
-            const lastDateB = periodAssignments[b]?.[period] || new Date(0)
-            return lastDateA - lastDateB
-        })
-
-        for (const group of candidates) {
-            if (
-                this._isGroupValidForSlot(
-                    group,
-                    slot,
-                    weeklyAssignments,
-                    periodAssignments,
-                    muDays,
-                    dayRule
-                )
-            ) {
-                // --- Apply Changes (Try placing the group) ---
-                let dayEntry = schedule.find(
-                    (d) => d.date.toDateString() === dateStr
-                )
-                if (!dayEntry) {
-                    dayEntry = new ScheduleEntry(
-                        date,
-                        dayCycle % 2 === 0 ? 2 : 1
-                    )
-                    schedule.push(dayEntry)
-                    schedule.sort((a, b) => a.date - b.date)
-                }
-                dayEntry.addLesson(period, group)
-
-                let addedToWeek = false
-                let previousDate = null
-                if (group === "MU") {
-                    muDays.add(dateStr)
-                } else {
-                    const groupsThisWeek = weeklyAssignments.get(weekId)
-                    if (!groupsThisWeek.has(group)) {
-                        groupsThisWeek.add(group)
-                        addedToWeek = true
-                    }
-                    if (!periodAssignments[group]) periodAssignments[group] = {}
-                    previousDate = periodAssignments[group][period]
-                    periodAssignments[group][period] = date
-                }
-
-                // --- Recurse ---
-                if (
-                    this.solve(
-                        slots,
-                        index + 1,
-                        schedule,
-                        weeklyAssignments,
-                        periodAssignments,
-                        muDays,
-                        dayRule
-                    )
-                ) {
-                    return true
-                }
-
-                // --- Backtrack (Undo the changes if recursion failed) ---
-                dayEntry.lessons.pop()
-                if (dayEntry.lessons.length === 0) schedule.pop()
-
-                if (group === "MU") {
-                    muDays.delete(dateStr)
-                } else {
-                    if (addedToWeek) weeklyAssignments.get(weekId).delete(group)
-                    if (previousDate !== null)
-                        periodAssignments[group][period] = previousDate
-                    else delete periodAssignments[group][period]
-                }
+    _deepCopyAssignments() {
+        const copy = JSON.parse(JSON.stringify(this.initialPeriodAssignments))
+        for (const group in copy) {
+            for (const period in copy[group]) {
+                copy[group][period] = new Date(copy[group][period])
             }
         }
-        return false // No valid group found for this slot
+        return copy
+    }
+
+    _groupSlotsByDay(slots) {
+        const dayMap = new Map()
+        for (const slot of slots) {
+            const key = slot.date.toDateString()
+            if (!dayMap.has(key)) {
+                dayMap.set(key, {
+                    date: slot.date,
+                    dayCycle: slot.dayCycle,
+                    periods: [],
+                })
+            }
+            dayMap.get(key).periods.push(slot.period)
+        }
+        return [...dayMap.values()].sort((a, b) => a.date - b.date)
     }
 
     /**
-     * The main public method to generate the schedule. It orchestrates the process,
-     * first trying for a "perfect" schedule, then falling back to a "high-quality" one.
-     * @returns {Array<ScheduleEntry>} The final generated schedule.
+     * Period-centric day solver with MRV heuristic.
+     * Candidate groups are tried in the given order (cycle priority).
+     * @private
      */
+    _solveDayAssignment(periods, candidateGroups, date, weekId, weeklyAssignments, periodAssignments, dayRule) {
+        const numPeriods = periods.length
+        const oneDayMs = 1000 * 60 * 60 * 24
+
+        const validGroupsPerPeriod = periods.map((period) => {
+            const valid = []
+            for (const group of candidateGroups) {
+                if (group === "MU") { valid.push(group); continue }
+                if (weeklyAssignments.get(weekId)?.has(group)) continue
+                const lastDate = periodAssignments[group]?.[period]
+                if (lastDate && (date - lastDate) / oneDayMs < dayRule) continue
+                valid.push(group)
+            }
+            return { period, valid }
+        })
+
+        const assignment = new Array(numPeriods).fill(null)
+        const usedGroups = new Set()
+
+        const solve = (depth) => {
+            if (depth >= numPeriods) return true
+
+            let bestIdx = -1
+            let bestCount = Infinity
+            for (let i = 0; i < numPeriods; i++) {
+                if (assignment[i] !== null) continue
+                let count = 0
+                for (const g of validGroupsPerPeriod[i].valid) {
+                    if (!usedGroups.has(g)) count++
+                }
+                if (count < bestCount) {
+                    bestCount = count
+                    bestIdx = i
+                }
+            }
+
+            const idx = bestIdx
+            const { valid } = validGroupsPerPeriod[idx]
+
+            for (const group of valid) {
+                if (usedGroups.has(group)) continue
+                assignment[idx] = group
+                usedGroups.add(group)
+                if (solve(depth + 1)) return true
+                usedGroups.delete(group)
+                assignment[idx] = null
+            }
+
+            return false
+        }
+
+        if (solve(0)) {
+            return periods.map((p, i) => ({ period: p, group: assignment[i] }))
+        }
+        return null
+    }
+
+    /**
+     * Constructive cycle-based scheduling.
+     *
+     * For each day:
+     * 1. Build candidate list: pending groups (sorted by lastGlobalPos asc), then next-cycle, then MU
+     * 2. Solve period assignment using MRV backtracking
+     * 3. Reorder lessons within the day: non-MU sorted by lastGlobalPos ascending
+     *    This ensures the flat lesson sequence preserves cycle ordering
+     * @private
+     */
+    _constructSchedule(days, dayRule) {
+        const schedule = []
+        const weeklyAssignments = new Map()
+        const periodAssignments = this._deepCopyAssignments()
+
+        const lastGlobalPos = {}
+        for (const g of this.LESSON_GROUPS) {
+            lastGlobalPos[g] = -REQUIRED_UNIQUE_GROUPS
+        }
+        let globalPos = 0
+
+        let pendingInCycle = new Set(this.LESSON_GROUPS)
+
+        for (const day of days) {
+            const { date, dayCycle, periods } = day
+            const weekId = this.getWeekIdentifier(date)
+            if (!weeklyAssignments.has(weekId))
+                weeklyAssignments.set(weekId, new Set())
+
+            const pending = [...pendingInCycle]
+                .filter((g) => !weeklyAssignments.get(weekId)?.has(g))
+                .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
+
+            const nextCycle = this.LESSON_GROUPS
+                .filter((g) => !pendingInCycle.has(g))
+                .filter((g) => !weeklyAssignments.get(weekId)?.has(g))
+                .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
+
+            // Try pending-only first (with MU fill) to preserve cycle order
+            const pendingOnly = [...pending, "MU"]
+            let result = this._solveDayAssignment(
+                periods, pendingOnly, date, weekId,
+                weeklyAssignments, periodAssignments, dayRule
+            )
+
+            // If pending-only fails, allow next-cycle groups too
+            if (!result) {
+                const candidates = [...pending, ...nextCycle, "MU"]
+                result = this._solveDayAssignment(
+                    periods, candidates, date, weekId,
+                    weeklyAssignments, periodAssignments, dayRule
+                )
+            }
+
+            // Last resort: ignore cycle tracking, just find valid assignment
+            if (!result) {
+                const allCandidates = [
+                    ...this.LESSON_GROUPS
+                        .filter((g) => !weeklyAssignments.get(weekId)?.has(g))
+                        .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b]),
+                    "MU"
+                ]
+                result = this._solveDayAssignment(
+                    periods, allCandidates, date, weekId,
+                    weeklyAssignments, periodAssignments, dayRule
+                )
+            }
+
+            if (!result) return null
+
+            const nonMU = result.filter((a) => a.group !== "MU")
+            const mu = result.filter((a) => a.group === "MU")
+
+            nonMU.sort((a, b) => lastGlobalPos[a.group] - lastGlobalPos[b.group])
+
+            const dayEntry = new ScheduleEntry(date, dayCycle % 2 === 0 ? 2 : 1)
+            for (const { period, group } of [...nonMU, ...mu]) {
+                dayEntry.addLesson(period, group)
+                if (group !== "MU") {
+                    weeklyAssignments.get(weekId).add(group)
+                    if (!periodAssignments[group]) periodAssignments[group] = {}
+                    periodAssignments[group][period] = date
+                    lastGlobalPos[group] = globalPos++
+                    pendingInCycle.delete(group)
+                }
+            }
+
+            if (pendingInCycle.size === 0) {
+                pendingInCycle = new Set(this.LESSON_GROUPS)
+            }
+
+            schedule.push(dayEntry)
+        }
+
+        return schedule
+    }
+
     buildSchedule() {
         const slots = this.generateAllSlots()
         if (slots.length === 0) return []
 
-        const weeklyAssignments = new Map()
-        const muDays = new Set()
-        // Deep copy initial state to avoid mutation across attempts
-        const periodAssignments = JSON.parse(
-            JSON.stringify(this.initialPeriodAssignments)
-        )
-        for (const group in periodAssignments) {
-            for (const period in periodAssignments[group]) {
-                periodAssignments[group][period] = new Date(
-                    periodAssignments[group][period]
-                )
-            }
-        }
+        const days = this._groupSlotsByDay(slots)
 
         console.log(
             `Attempting to find a perfect schedule with a ${PERFECT_SCHEDULE_DAY_RULE}-day constraint...`
         )
-        let schedule = []
-        if (
-            this.solve(
-                slots,
-                0,
-                schedule,
-                weeklyAssignments,
-                periodAssignments,
-                muDays,
-                PERFECT_SCHEDULE_DAY_RULE
-            )
-        ) {
+        let schedule = this._constructSchedule(days, PERFECT_SCHEDULE_DAY_RULE)
+        if (schedule) {
+            this.achievedDayRule = PERFECT_SCHEDULE_DAY_RULE
             return schedule
-        }
-
-        // Reset state for the second, less strict attempt
-        schedule = []
-        weeklyAssignments.clear()
-        muDays.clear()
-        const freshAssignments = JSON.parse(
-            JSON.stringify(this.initialPeriodAssignments)
-        )
-        for (const group in freshAssignments) {
-            for (const period in freshAssignments[group]) {
-                freshAssignments[group][period] = new Date(
-                    freshAssignments[group][period]
-                )
-            }
         }
 
         console.log(
             `No ${PERFECT_SCHEDULE_DAY_RULE}-day solution. Attempting high-quality schedule with a ${HIGH_QUALITY_DAY_RULE}-day constraint...`
         )
-        if (
-            this.solve(
-                slots,
-                0,
-                schedule,
-                weeklyAssignments,
-                freshAssignments,
-                muDays,
-                HIGH_QUALITY_DAY_RULE
-            )
-        ) {
+        schedule = this._constructSchedule(days, HIGH_QUALITY_DAY_RULE)
+        if (schedule) {
+            this.achievedDayRule = HIGH_QUALITY_DAY_RULE
             return schedule
         }
-        return [] // Return empty if no solution is found
+
+        return []
     }
 }
