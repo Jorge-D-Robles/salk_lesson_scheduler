@@ -28,11 +28,7 @@ Go to **APIs & Services > Credentials > Create Credentials > OAuth 2.0 Client ID
   - `http://localhost:8000` (for local development)
   - Your GitHub Pages URL (e.g., `https://yourusername.github.io`)
 
-## 5. Set Up config.js
-
-```bash
-cp config.example.js config.js
-```
+## 5. Update config.js
 
 Edit `config.js` and replace the placeholder with your Client ID:
 
@@ -42,7 +38,7 @@ const CONFIG = {
 };
 ```
 
-`config.js` is gitignored and will never be committed or pushed.
+OAuth client IDs for JS web apps are public identifiers (restricted by authorized origins), so committing this file is safe.
 
 ## Notes
 
