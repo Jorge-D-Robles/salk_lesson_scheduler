@@ -30,9 +30,181 @@ const ui = {
     scheduleOutput: null,
     scheduleTableBody: null,
     dayOffTemplate: null,
+    signInBtn: null,
+    signOutBtn: null,
+    userProfile: null,
+    userAvatar: null,
+    userName: null,
+    saveDriveBtn: null,
+    loadDriveBtn: null,
+    toastContainer: null,
 }
 
+// Holds the most recently displayed schedule for Drive persistence
+let currentSchedule = null
+
 // --- Function Definitions ---
+
+/**
+ * Shows a temporary toast notification.
+ * @param {string} message - The message to display.
+ * @param {'success'|'error'|'info'} [type='success'] - The toast type.
+ */
+function showToast(message, type = 'success') {
+    if (!ui.toastContainer) return
+    const toast = document.createElement('div')
+    toast.className = `toast toast-${type}`
+    toast.textContent = message
+    ui.toastContainer.appendChild(toast)
+    setTimeout(() => {
+        toast.style.opacity = '0'
+        toast.style.transition = 'opacity 0.3s'
+        setTimeout(() => toast.remove(), 300)
+    }, 3000)
+}
+
+/**
+ * Serializes a schedule and form parameters to a JSON-safe object.
+ * @param {Array<ScheduleEntry>} schedule
+ * @returns {Object}
+ */
+function scheduleToJSON(schedule) {
+    const params = {
+        startDate: ui.startDateInput?.value || '',
+        dayCycle: document.getElementById('day-cycle')?.value || '',
+        weeks: ui.weeksInput?.value || '',
+        daysOff: Array.from(document.querySelectorAll('.day-off-input'))
+            .map(input => input.value).filter(Boolean),
+    }
+    return {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        parameters: params,
+        schedule: schedule.map(entry => ({
+            date: entry.date.toISOString(),
+            dayCycle: entry.dayCycle,
+            lessons: entry.lessons.map(l => ({ period: l.period, group: l.group })),
+        })),
+    }
+}
+
+/**
+ * Deserializes JSON data back to an array of ScheduleEntry objects.
+ * @param {Object} data - The parsed JSON data.
+ * @returns {Array<ScheduleEntry>}
+ */
+function jsonToSchedule(data) {
+    if (!data || !data.schedule) return []
+    return data.schedule.map(item => {
+        const date = new Date(item.date)
+        const entry = new ScheduleEntry(date, item.dayCycle)
+        for (const lesson of item.lessons) {
+            const periodNum = parseInt(lesson.period.replace(/\D/g, ''), 10)
+            if (!isNaN(periodNum)) {
+                entry.addLesson(periodNum, lesson.group)
+            }
+        }
+        return entry
+    })
+}
+
+/**
+ * Restores form parameters from saved JSON data.
+ * @param {Object} params - The parameters object from saved data.
+ */
+function restoreFormParameters(params) {
+    if (!params) return
+    if (params.startDate) ui.startDateInput.value = params.startDate
+    if (params.dayCycle) document.getElementById('day-cycle').value = params.dayCycle
+    if (params.weeks) ui.weeksInput.value = params.weeks
+}
+
+/**
+ * Handles successful sign-in: fetches profile, updates UI, auto-loads from Drive.
+ * @param {string} token
+ */
+async function handleSignIn(token) {
+    try {
+        const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { 'Authorization': `Bearer ${token}` },
+        })
+        if (resp.ok) {
+            const profile = await resp.json()
+            ui.userAvatar.src = profile.picture || ''
+            ui.userName.textContent = profile.name || profile.email || ''
+        }
+    } catch (e) {
+        console.warn('Could not fetch user profile:', e)
+    }
+
+    ui.signInBtn.classList.add('hidden')
+    ui.userProfile.classList.remove('hidden')
+    ui.userProfile.classList.add('flex')
+    ui.saveDriveBtn.classList.remove('hidden')
+    ui.loadDriveBtn.classList.remove('hidden')
+
+    // Auto-load saved schedule
+    try {
+        const data = await DriveStorage.loadSchedule(token)
+        if (data) {
+            const schedule = jsonToSchedule(data)
+            if (schedule.length > 0) {
+                restoreFormParameters(data.parameters)
+                displaySchedule(schedule)
+                currentSchedule = schedule
+                ui.scheduleOutput.classList.remove('hidden')
+                showToast('Schedule loaded from Google Drive', 'info')
+            }
+        }
+    } catch (e) {
+        if (e.message === 'TOKEN_EXPIRED') {
+            showToast('Session expired. Please sign in again.', 'error')
+            handleSignOut()
+        } else {
+            console.warn('Could not auto-load from Drive:', e)
+        }
+    }
+}
+
+/**
+ * Handles sign-out: resets header UI, hides Drive controls.
+ */
+function handleSignOut() {
+    ui.signInBtn.classList.remove('hidden')
+    ui.userProfile.classList.add('hidden')
+    ui.userProfile.classList.remove('flex')
+    ui.saveDriveBtn.classList.add('hidden')
+    ui.loadDriveBtn.classList.add('hidden')
+    ui.userAvatar.src = ''
+    ui.userName.textContent = ''
+}
+
+/**
+ * Saves the current schedule to Google Drive if signed in.
+ * @param {Array<ScheduleEntry>} schedule
+ */
+async function autoSaveToDrive(schedule) {
+    if (!AuthManager.isSignedIn() || !schedule || schedule.length === 0) return
+    try {
+        const data = scheduleToJSON(schedule)
+        await DriveStorage.saveSchedule(AuthManager.getToken(), data)
+        showToast('Schedule saved to Google Drive')
+    } catch (e) {
+        if (e.message === 'TOKEN_EXPIRED') {
+            try {
+                const newToken = await AuthManager.refreshToken()
+                const data = scheduleToJSON(schedule)
+                await DriveStorage.saveSchedule(newToken, data)
+                showToast('Schedule saved to Google Drive')
+            } catch (retryErr) {
+                showToast('Could not save to Drive. Please sign in again.', 'error')
+            }
+        } else {
+            showToast('Could not save to Drive.', 'error')
+            console.error('Drive save error:', e)
+        }
+    }
+}
 
 /**
  * Handles the main form submission event to generate and display the schedule.
@@ -59,6 +231,8 @@ function runScheduler() {
             )
             const schedule = scheduleBuilder.buildSchedule()
             displaySchedule(schedule)
+            currentSchedule = schedule
+            autoSaveToDrive(schedule)
         } catch (error) {
             console.error("Error generating schedule:", error)
             alert(
@@ -361,8 +535,10 @@ function handleCSVImport(event) {
             return
         }
         displaySchedule(schedule)
+        currentSchedule = schedule
         ui.scheduleOutput.classList.remove("hidden")
         ui.importCsvInput.value = ""
+        autoSaveToDrive(schedule)
     }
     reader.readAsText(file)
 }
@@ -598,6 +774,14 @@ function initialize() {
     ui.scheduleOutput = document.getElementById("schedule-output")
     ui.scheduleTableBody = document.querySelector("#schedule-table tbody")
     ui.dayOffTemplate = document.getElementById("day-off-template")
+    ui.signInBtn = document.getElementById("sign-in-btn")
+    ui.signOutBtn = document.getElementById("sign-out-btn")
+    ui.userProfile = document.getElementById("user-profile")
+    ui.userAvatar = document.getElementById("user-avatar")
+    ui.userName = document.getElementById("user-name")
+    ui.saveDriveBtn = document.getElementById("save-drive-btn")
+    ui.loadDriveBtn = document.getElementById("load-drive-btn")
+    ui.toastContainer = document.getElementById("toast-container")
 
     // --- Attach Event Listeners ---
     ui.form.addEventListener("submit", (e) => {
@@ -637,6 +821,61 @@ function initialize() {
             e.target.parentElement.remove()
         }
     })
+
+    // --- Auth & Drive Listeners ---
+    if (ui.signInBtn) {
+        ui.signInBtn.addEventListener("click", () => {
+            if (typeof AuthManager !== 'undefined') {
+                AuthManager.signIn()
+            } else {
+                showToast('Google Sign-In is not available. See FOLLOW_UP.md for setup.', 'error')
+            }
+        })
+    }
+    if (ui.signOutBtn) {
+        ui.signOutBtn.addEventListener("click", () => {
+            if (typeof AuthManager !== 'undefined') AuthManager.signOut()
+        })
+    }
+    if (ui.saveDriveBtn) {
+        ui.saveDriveBtn.addEventListener("click", async () => {
+            if (currentSchedule) {
+                await autoSaveToDrive(currentSchedule)
+            } else {
+                showToast('No schedule to save. Generate or import one first.', 'error')
+            }
+        })
+    }
+    if (ui.loadDriveBtn) {
+        ui.loadDriveBtn.addEventListener("click", async () => {
+            if (!AuthManager.isSignedIn()) return
+            try {
+                const data = await DriveStorage.loadSchedule(AuthManager.getToken())
+                if (data) {
+                    const schedule = jsonToSchedule(data)
+                    if (schedule.length > 0) {
+                        restoreFormParameters(data.parameters)
+                        displaySchedule(schedule)
+                        currentSchedule = schedule
+                        ui.scheduleOutput.classList.remove('hidden')
+                        showToast('Schedule loaded from Google Drive', 'info')
+                    } else {
+                        showToast('Saved schedule is empty.', 'error')
+                    }
+                } else {
+                    showToast('No saved schedule found in Google Drive.', 'info')
+                }
+            } catch (e) {
+                showToast('Could not load from Drive.', 'error')
+                console.error('Drive load error:', e)
+            }
+        })
+    }
+
+    // Initialize AuthManager if available
+    if (typeof AuthManager !== 'undefined') {
+        AuthManager.init(handleSignIn, handleSignOut)
+    }
 
     // --- Initial Page Setup ---
     // Set the default start date to today.
