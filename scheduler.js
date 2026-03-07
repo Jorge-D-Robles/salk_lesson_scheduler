@@ -5,8 +5,9 @@
  */
 
 // --- Constants for Scheduling Rules ---
-const PERFECT_SCHEDULE_DAY_RULE = 28
-const HIGH_QUALITY_DAY_RULE = 21
+const DAY1_PERIODS = [1, 4, 7, 8]
+const DAY2_PERIODS = [1, 2, 3, 7, 8]
+const ALL_UNIQUE_PERIODS = [1, 2, 3, 4, 7, 8]
 const REQUIRED_UNIQUE_GROUPS = 22
 
 class ScheduleEntry {
@@ -65,9 +66,9 @@ class ScheduleBuilder {
         }
 
         this.initialPeriodAssignments = {}
-        this.LESSON_GROUPS.forEach(
-            (g) => (this.initialPeriodAssignments[g] = {})
-        )
+        this.LESSON_GROUPS.forEach((g) => {
+            this.initialPeriodAssignments[g] = {}
+        })
         if (scheduleHistory)
             this._populateAssignmentsFromHistory(scheduleHistory)
     }
@@ -129,6 +130,7 @@ class ScheduleBuilder {
                 this.historicalLessonCounts[lesson.group]++
             }
         })
+
     }
 
     generateAllSlots() {
@@ -144,7 +146,7 @@ class ScheduleBuilder {
             const isDayOff = this.daysOff.includes(currentDate.toDateString())
             if (isWeekday && !isDayOff) {
                 const periods =
-                    currentDayCycle % 2 !== 0 ? [1, 4, 7, 8] : [1, 2, 3, 7, 8]
+                    currentDayCycle % 2 !== 0 ? DAY1_PERIODS : DAY2_PERIODS
                 periods.forEach((p) => {
                     slots.push({
                         date: new Date(currentDate.getTime()),
@@ -199,17 +201,20 @@ class ScheduleBuilder {
      * Candidate groups are tried in the given order (cycle priority).
      * @private
      */
-    _solveDayAssignment(periods, candidateGroups, date, weekId, weeklyAssignments, periodAssignments, dayRule) {
+    _solveDayAssignment(periods, candidateGroups, date, weekId, weeklyAssignments, periodRotation, periodAssignments, calendarFloor) {
         const numPeriods = periods.length
-        const oneDayMs = 1000 * 60 * 60 * 24
+        const oneDayMs = 86400000
 
         const validGroupsPerPeriod = periods.map((period) => {
             const valid = []
             for (const group of candidateGroups) {
                 if (group === "MU") { valid.push(group); continue }
                 if (weeklyAssignments.get(weekId)?.has(group)) continue
-                const lastDate = periodAssignments[group]?.[period]
-                if (lastDate && (date - lastDate) / oneDayMs < dayRule) continue
+                if (periodRotation[group]?.has(period)) continue
+                if (calendarFloor > 0) {
+                    const lastDate = periodAssignments[group]?.[period]
+                    if (lastDate && (date - lastDate) / oneDayMs < calendarFloor) continue
+                }
                 valid.push(group)
             }
             return { period, valid }
@@ -266,10 +271,14 @@ class ScheduleBuilder {
      *    This ensures the flat lesson sequence preserves cycle ordering
      * @private
      */
-    _constructSchedule(days, dayRule) {
+    _constructSchedule(days, calendarFloor = 14) {
         const schedule = []
         const weeklyAssignments = new Map()
         const periodAssignments = this._deepCopyAssignments()
+        const periodRotation = {}
+        for (const group of this.LESSON_GROUPS) {
+            periodRotation[group] = { 1: new Set(), 2: new Set() }
+        }
 
         // Pre-populate weekly assignments from history so groups already
         // scheduled earlier in the starting week aren't double-booked.
@@ -313,11 +322,20 @@ class ScheduleBuilder {
                 .filter((g) => !weeklyAssignments.get(weekId)?.has(g))
                 .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
 
+            const dayType = dayCycle % 2 === 0 ? 2 : 1
+            const dayTypePeriods = dayType === 1 ? DAY1_PERIODS : DAY2_PERIODS
+
+            // Build per-day-type rotation view for the solver
+            const currentRotation = {}
+            for (const g of this.LESSON_GROUPS) {
+                currentRotation[g] = periodRotation[g][dayType]
+            }
+
             // Try pending-only first (with MU fill) to preserve cycle order
             const pendingOnly = [...pending, "MU"]
             let result = this._solveDayAssignment(
                 periods, pendingOnly, date, weekId,
-                weeklyAssignments, periodAssignments, dayRule
+                weeklyAssignments, currentRotation, periodAssignments, calendarFloor
             )
 
             // If pending-only fails, allow next-cycle groups too
@@ -325,7 +343,7 @@ class ScheduleBuilder {
                 const candidates = [...pending, ...nextCycle, "MU"]
                 result = this._solveDayAssignment(
                     periods, candidates, date, weekId,
-                    weeklyAssignments, periodAssignments, dayRule
+                    weeklyAssignments, currentRotation, periodAssignments, calendarFloor
                 )
             }
 
@@ -339,7 +357,23 @@ class ScheduleBuilder {
                 ]
                 result = this._solveDayAssignment(
                     periods, allCandidates, date, weekId,
-                    weeklyAssignments, periodAssignments, dayRule
+                    weeklyAssignments, currentRotation, periodAssignments, calendarFloor
+                )
+            }
+
+            // Final fallback: drop rotation constraint, keep only weekly + calendar
+            if (!result) {
+                const allCandidates = [
+                    ...this.LESSON_GROUPS
+                        .filter((g) => !weeklyAssignments.get(weekId)?.has(g))
+                        .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b]),
+                    "MU"
+                ]
+                const emptyRotation = {}
+                for (const g of this.LESSON_GROUPS) emptyRotation[g] = new Set()
+                result = this._solveDayAssignment(
+                    periods, allCandidates, date, weekId,
+                    weeklyAssignments, emptyRotation, periodAssignments, calendarFloor
                 )
             }
 
@@ -350,7 +384,7 @@ class ScheduleBuilder {
 
             nonMU.sort((a, b) => lastGlobalPos[a.group] - lastGlobalPos[b.group])
 
-            const dayEntry = new ScheduleEntry(date, dayCycle % 2 === 0 ? 2 : 1)
+            const dayEntry = new ScheduleEntry(date, dayType)
             for (const { period, group } of [...nonMU, ...mu]) {
                 dayEntry.addLesson(period, group)
                 if (group !== "MU") {
@@ -359,8 +393,19 @@ class ScheduleBuilder {
                     periodAssignments[group][period] = date
                     lastGlobalPos[group] = globalPos++
                     pendingInCycle.delete(group)
+                    periodRotation[group][dayType].add(period)
+                    if (dayTypePeriods.every(p => periodRotation[group][dayType].has(p))) {
+                        periodRotation[group][dayType] = new Set()
+                    }
                 }
             }
+
+            // Sort lessons by period number for display
+            dayEntry.lessons.sort((a, b) => {
+                const pA = parseInt(a.period.replace('Pd ', ''), 10)
+                const pB = parseInt(b.period.replace('Pd ', ''), 10)
+                return pA - pB
+            })
 
             if (pendingInCycle.size === 0) {
                 pendingInCycle = new Set(this.LESSON_GROUPS)
@@ -459,23 +504,14 @@ class ScheduleBuilder {
 
         const days = this._groupSlotsByDay(slots)
 
-        console.log(
-            `Attempting to find a perfect schedule with a ${PERFECT_SCHEDULE_DAY_RULE}-day constraint...`
-        )
-        let schedule = this._constructSchedule(days, PERFECT_SCHEDULE_DAY_RULE)
-        if (schedule) {
-            this.achievedDayRule = PERFECT_SCHEDULE_DAY_RULE
-            this._balanceLessonCounts(schedule, PERFECT_SCHEDULE_DAY_RULE)
-            return schedule
+        // Try with 14-day calendar floor, fall back to rotation-only
+        let schedule = this._constructSchedule(days, 14)
+        if (!schedule) {
+            schedule = this._constructSchedule(days, 0)
         }
-
-        console.log(
-            `No ${PERFECT_SCHEDULE_DAY_RULE}-day solution. Attempting high-quality schedule with a ${HIGH_QUALITY_DAY_RULE}-day constraint...`
-        )
-        schedule = this._constructSchedule(days, HIGH_QUALITY_DAY_RULE)
         if (schedule) {
-            this.achievedDayRule = HIGH_QUALITY_DAY_RULE
-            this._balanceLessonCounts(schedule, HIGH_QUALITY_DAY_RULE)
+            this.achievedDayRule = 28
+            this._balanceLessonCounts(schedule, 14)
             return schedule
         }
 

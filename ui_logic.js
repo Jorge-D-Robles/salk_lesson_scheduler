@@ -183,24 +183,34 @@ function getWeekIdentifier(d) {
     return new Date(newD.setDate(diff)).toDateString()
 }
 
-function find28DayViolations(dayIndex, group, period, excludeDayIndices) {
+function findRotationViolations(dayIndex, group, period, excludeDayIndices) {
     if (!currentSchedule || group.startsWith('MU')) return []
-    const violations = []
-    const targetDate = currentSchedule[dayIndex].date
-    for (let i = 0; i < currentSchedule.length; i++) {
-        if (i === dayIndex) continue
+    const DAY1 = [1, 4, 7, 8]
+    const DAY2 = [1, 2, 3, 7, 8]
+    const periodNum = parseInt(period.replace('Pd ', ''), 10)
+    const targetDayType = currentSchedule[dayIndex].dayCycle
+    const dayPeriods = targetDayType === 1 ? DAY1 : DAY2
+
+    // Reconstruct per-day-type rotation state for this group up to dayIndex
+    const usedPeriods = { 1: new Set(), 2: new Set() }
+    for (let i = 0; i < dayIndex; i++) {
         if (excludeDayIndices && excludeDayIndices.has(i)) continue
+        const dt = currentSchedule[i].dayCycle
+        const dp = dt === 1 ? DAY1 : DAY2
         for (const lesson of currentSchedule[i].lessons) {
-            if (lesson.group === group && lesson.period === period) {
-                const daysBetween = Math.round(Math.abs(targetDate - currentSchedule[i].date) / 86400000)
-                if (daysBetween < 28) {
-                    const conflictDate = currentSchedule[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                    violations.push({ type: '28day', group, period, conflictDate, daysBetween })
-                }
+            if (lesson.group !== group) continue
+            const p = parseInt(lesson.period.replace('Pd ', ''), 10)
+            usedPeriods[dt].add(p)
+            if (dp.every(pp => usedPeriods[dt].has(pp))) {
+                usedPeriods[dt] = new Set()
             }
         }
     }
-    return violations
+
+    if (usedPeriods[targetDayType].has(periodNum)) {
+        return [{ type: 'rotation', group, period, message: `${period} already used in current Day ${targetDayType} rotation cycle` }]
+    }
+    return []
 }
 
 function findWeeklyViolations(sourceDayIndex, targetDayIndex, groupA, groupB) {
@@ -252,8 +262,8 @@ function checkSwapViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, 
     const excludeSet = isCrossDay ? new Set([sourceDayIndex, targetDayIndex]) : undefined
     // After swap: groupA goes to target period, groupB goes to source period
     const violations = [
-        ...find28DayViolations(targetDayIndex, lessonA.group, lessonB.period, excludeSet),
-        ...find28DayViolations(sourceDayIndex, lessonB.group, lessonA.period, excludeSet),
+        ...findRotationViolations(targetDayIndex, lessonA.group, lessonB.period, excludeSet),
+        ...findRotationViolations(sourceDayIndex, lessonB.group, lessonA.period, excludeSet),
         ...findWeeklyViolations(sourceDayIndex, targetDayIndex, lessonA.group, lessonB.group),
         ...findMUViolations(targetDayIndex, targetLessonIndex, lessonA.group),
         ...findMUViolations(sourceDayIndex, sourceLessonIndex, lessonB.group),
@@ -303,7 +313,7 @@ function showSwapWarningTooltip(cell, violations) {
     closeBtn.addEventListener('click', () => dismissSwapWarning())
     tooltip.appendChild(closeBtn)
     let html = violations.map(v => {
-        if (v.type === '28day') return `<div class="warn-line">${v.group} in ${v.period}: only ${v.daysBetween} days from ${v.conflictDate}</div>`
+        if (v.type === 'rotation') return `<div class="warn-line">${v.group}: ${v.period} already used in current rotation cycle</div>`
         if (v.type === 'weekly') return `<div class="warn-line">${v.group} already scheduled this week (${v.conflictDate})</div>`
         if (v.type === 'mu') return `<div class="warn-line">Would create 2+ MU slots on ${v.conflictDate}</div>`
         return ''
@@ -1025,27 +1035,31 @@ function getScheduleParameters() {
  */
 function computeCellIssues(schedule) {
     const issues = new Map()
+    const DAY1 = [1, 4, 7, 8]
+    const DAY2 = [1, 2, 3, 7, 8]
+    const usedPeriods = {}
+
     for (let dayIndex = 0; dayIndex < schedule.length; dayIndex++) {
         const entry = schedule[dayIndex]
+        const dayType = entry.dayCycle
+        const dayPeriods = dayType === 1 ? DAY1 : DAY2
+
         for (let lessonIndex = 0; lessonIndex < entry.lessons.length; lessonIndex++) {
             const lesson = entry.lessons[lessonIndex]
             if (lesson.group.startsWith('MU')) continue
+            const periodNum = parseInt(lesson.period.replace('Pd ', ''), 10)
             const cellIssues = []
-            for (let j = 0; j < schedule.length; j++) {
-                if (j === dayIndex) continue
-                for (const other of schedule[j].lessons) {
-                    if (other.group === lesson.group && other.period === lesson.period) {
-                        const daysBetween = Math.round(Math.abs(entry.date - schedule[j].date) / 86400000)
-                        if (daysBetween < 28) {
-                            const conflictDate = schedule[j].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                            cellIssues.push(`Only ${daysBetween}d separation from ${conflictDate} (ideal: 28d)`)
-                        }
-                    }
-                }
+
+            if (!usedPeriods[lesson.group]) usedPeriods[lesson.group] = { 1: new Set(), 2: new Set() }
+            if (usedPeriods[lesson.group][dayType].has(periodNum)) {
+                cellIssues.push(`${lesson.period} repeated before completing full Day ${dayType} period rotation`)
             }
-            if (schedule.achievedDayRule === 21) {
-                cellIssues.push('Schedule used 21-day spacing (28-day was impossible due to calendar gaps)')
+
+            usedPeriods[lesson.group][dayType].add(periodNum)
+            if (dayPeriods.every(p => usedPeriods[lesson.group][dayType].has(p))) {
+                usedPeriods[lesson.group][dayType] = new Set()
             }
+
             if (cellIssues.length > 0) {
                 issues.set(`${dayIndex}-${lessonIndex}`, cellIssues)
             }
