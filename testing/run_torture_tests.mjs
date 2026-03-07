@@ -143,5 +143,113 @@ for (const t of realisticTests) {
     }
 }
 
+// --- Chunked scheduling: simulate building in 8-week chunks with history import ---
+console.log('\n--- Chunked scheduling (8-week chunks, 4-week history) ---');
+
+function runChunkedTest(desc, startCycle, daysOff) {
+    const allGroups = Array.from({ length: 22 }, (_, i) => String.fromCharCode(65 + i));
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+    let combined = [];
+    let chunkStart = '2025-09-02';
+    let chunkCycle = startCycle;
+
+    while (true) {
+        const startDate = new Date(chunkStart + 'T00:00:00');
+        const origEnd = new Date('2025-09-02T00:00:00');
+        origEnd.setDate(origEnd.getDate() + 43 * 7);
+        const weeksLeft = Math.ceil((origEnd - startDate) / (7 * 86400000));
+        const thisChunkWeeks = Math.min(8, weeksLeft);
+        if (thisChunkWeeks <= 0) break;
+
+        let history = null;
+        if (combined.length > 0) {
+            const cutoff = new Date(startDate);
+            cutoff.setDate(cutoff.getDate() - 4 * 7);
+            history = [];
+            for (const d of combined.filter(d => d.date >= cutoff)) {
+                for (const l of d.lessons) {
+                    history.push({ group: l.group, period: l.period, date: fmt(d.date) });
+                }
+            }
+        }
+
+        const builder = new ScheduleBuilder(chunkStart, chunkCycle, daysOff, thisChunkWeeks, history);
+        const schedule = builder.buildSchedule();
+
+        for (const d of schedule) {
+            if (!combined.some(e => e.date.toDateString() === d.date.toDateString())) {
+                combined.push(d);
+            }
+        }
+
+        const nextStart = new Date(startDate);
+        nextStart.setDate(nextStart.getDate() + thisChunkWeeks * 7);
+        chunkStart = fmt(nextStart);
+        chunkCycle = (1 + schedule.length) % 2 === 0 ? 2 : 1;
+    }
+
+    combined.sort((a, b) => a.date - b.date);
+
+    // Validate combined schedule
+    const issues = [];
+    const ONE_DAY_MS = 86400000;
+
+    // 21-day rule
+    const lastSeen = {};
+    for (const d of combined) {
+        for (const l of d.lessons) {
+            if (l.group === 'MU') continue;
+            if (!lastSeen[l.group]) lastSeen[l.group] = {};
+            const last = lastSeen[l.group][l.period];
+            if (last && (d.date - last) / ONE_DAY_MS < 21) issues.push(`21DAY:${l.group} ${l.period}`);
+            lastSeen[l.group][l.period] = d.date;
+        }
+    }
+
+    // Weekly uniqueness
+    const weeks = new Map();
+    for (const d of combined) {
+        const day = d.date.getDay();
+        const off = day === 0 ? 6 : day - 1;
+        const mon = new Date(d.date);
+        mon.setDate(d.date.getDate() - off);
+        const wk = mon.toDateString();
+        if (!weeks.has(wk)) weeks.set(wk, new Set());
+        for (const l of d.lessons) {
+            if (l.group === 'MU') continue;
+            if (weeks.get(wk).has(l.group)) issues.push(`WEEKLY:${l.group}`);
+            weeks.get(wk).add(l.group);
+        }
+    }
+
+    // Balance
+    const counts = {};
+    allGroups.forEach(g => counts[g] = 0);
+    for (const d of combined) for (const l of d.lessons) if (l.group !== 'MU') counts[l.group]++;
+    const vals = Object.values(counts);
+    const spread = Math.max(...vals) - Math.min(...vals);
+    if (spread > 2) issues.push(`BALANCE:${spread}`);
+
+    const status = issues.length === 0 ? 'PASS' : 'FAIL';
+    if (status === 'FAIL') fail++;
+    else pass++;
+    console.log(`${status} ${desc} c${startCycle} (chunked, spread=${spread})${issues.length > 0 ? ': ' + issues.join(', ') : ''}`);
+}
+
+// Test chunked mode with base calendar and a few realistic scenarios
+const chunkedTests = [
+    { desc: 'LV chunked clean', extra: [] },
+    { desc: 'LV chunked + 10 sick', extra: ['2025-09-15','2025-10-08','2025-10-29','2025-11-19','2025-12-10','2026-01-14','2026-02-25','2026-03-11','2026-04-22','2026-05-13'] },
+    { desc: 'LV chunked + terrible fall', extra: ['2025-09-15','2025-09-16','2025-09-17','2025-09-18','2025-09-19','2025-10-06','2025-10-27','2025-11-03','2025-11-10','2025-11-17','2025-11-24'] },
+    { desc: 'LV chunked + max absences', extra: ['2025-09-15','2025-10-08','2025-11-19','2025-12-10','2026-01-14','2026-02-25','2026-03-25','2026-04-22','2026-05-13','2026-06-10','2026-01-07','2026-02-11','2026-03-04','2026-04-13','2026-04-14','2026-04-15','2026-04-16','2026-04-17'] },
+];
+
+for (const t of chunkedTests) {
+    for (const cycle of [1, 2]) {
+        runChunkedTest(t.desc, cycle, [...levittownBase, ...t.extra]);
+    }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

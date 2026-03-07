@@ -93,6 +93,11 @@ class ScheduleBuilder {
     }
 
     _populateAssignmentsFromHistory(history) {
+        const startWeekId = this.getWeekIdentifier(this.startDate)
+        this.initialWeeklyGroups = new Set()
+        this.historicalLessonCounts = {}
+        this.LESSON_GROUPS.forEach((g) => (this.historicalLessonCounts[g] = 0))
+
         history.forEach((lesson) => {
             if (
                 !lesson.group ||
@@ -114,6 +119,14 @@ class ScheduleBuilder {
                     this.initialPeriodAssignments[lesson.group][periodNum] =
                         historyDate
                 }
+
+                // Track groups already scheduled in the starting week
+                if (this.getWeekIdentifier(historyDate) === startWeekId) {
+                    this.initialWeeklyGroups.add(lesson.group)
+                }
+
+                // Count total lessons per group for balance-aware ordering
+                this.historicalLessonCounts[lesson.group]++
             }
         })
     }
@@ -258,9 +271,28 @@ class ScheduleBuilder {
         const weeklyAssignments = new Map()
         const periodAssignments = this._deepCopyAssignments()
 
+        // Pre-populate weekly assignments from history so groups already
+        // scheduled earlier in the starting week aren't double-booked.
+        if (this.initialWeeklyGroups && this.initialWeeklyGroups.size > 0 && days.length > 0) {
+            const firstWeekId = this.getWeekIdentifier(days[0].date)
+            weeklyAssignments.set(firstWeekId, new Set(this.initialWeeklyGroups))
+        }
+
         const lastGlobalPos = {}
-        for (const g of this.LESSON_GROUPS) {
-            lastGlobalPos[g] = -REQUIRED_UNIQUE_GROUPS
+        if (this.historicalLessonCounts) {
+            // Seed ordering from historical counts: groups with fewer lessons
+            // get lower (= earlier) positions so they're scheduled first,
+            // naturally balancing counts across chunks.
+            const sorted = [...this.LESSON_GROUPS].sort(
+                (a, b) => this.historicalLessonCounts[a] - this.historicalLessonCounts[b]
+            )
+            sorted.forEach((g, i) => {
+                lastGlobalPos[g] = i - REQUIRED_UNIQUE_GROUPS
+            })
+        } else {
+            for (const g of this.LESSON_GROUPS) {
+                lastGlobalPos[g] = -REQUIRED_UNIQUE_GROUPS
+            }
         }
         let globalPos = 0
 
@@ -361,6 +393,8 @@ class ScheduleBuilder {
         if (maxC - minC <= 1) return
 
         const oneDayMs = 86400000
+        const firstWeekId = schedule.length > 0
+            ? this.getWeekIdentifier(schedule[0].date) : null
 
         for (let d = schedule.length - 1; d >= 0 && maxC - minC > 1; d--) {
             const day = schedule[d]
@@ -373,6 +407,11 @@ class ScheduleBuilder {
                         if (l.group !== "MU") weekGroups.add(l.group)
                     }
                 }
+            }
+
+            // Include groups from history that were in this week
+            if (weekId === firstWeekId && this.initialWeeklyGroups) {
+                for (const g of this.initialWeeklyGroups) weekGroups.add(g)
             }
 
             for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
