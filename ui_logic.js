@@ -20,6 +20,9 @@ const ui = {
     historyTextarea: null,
     validationBox: null,
     startDateInput: null,
+    endDateInput: null,
+    weeksInput: null,
+    importCsvInput: null,
     daysOffContainer: null,
     startDayWarning: null,
     scheduleGapWarning: null,
@@ -275,20 +278,123 @@ function validateHistory(text) {
 }
 
 /**
+ * Computes the number of weeks from start date to end date and sets the weeks input value.
+ */
+function computeWeeksFromEndDate() {
+    const startDate = ui.startDateInput.value
+    const endDate = ui.endDateInput.value
+    if (!startDate || !endDate) return
+
+    const start = new Date(startDate + "T00:00:00")
+    const end = new Date(endDate + "T00:00:00")
+    if (end <= start) {
+        ui.weeksInput.value = ""
+        return
+    }
+
+    const diffMs = end.getTime() - start.getTime()
+    const weeks = Math.min(Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000)), 52)
+    ui.weeksInput.value = weeks
+}
+
+/**
+ * Parses CSV text (as exported by Save to CSV) into an array of ScheduleEntry objects.
+ * @param {string} csvText - The raw CSV text.
+ * @returns {Array<ScheduleEntry>} Parsed schedule entries.
+ */
+function parseCSVToSchedule(csvText) {
+    const lines = csvText.split("\n").filter((line) => line.trim() !== "")
+    if (lines.length === 0) return []
+
+    // Skip header row if present
+    const startIndex =
+        lines[0].toLowerCase().includes("date") ||
+        lines[0].toLowerCase().includes("period")
+            ? 1
+            : 0
+
+    const entries = []
+    for (let i = startIndex; i < lines.length; i++) {
+        const columns = parseScheduleLine(lines[i])
+        const dateStr = columns[0]
+        const dateObj = new Date(dateStr)
+        if (isNaN(dateObj.getTime())) continue
+
+        const dayCycleStr = columns[1]
+        const dayCycle = parseInt(dayCycleStr, 10)
+        const entry = new ScheduleEntry(dateObj, isNaN(dayCycle) ? 1 : dayCycle)
+
+        const firstPeriodIndex = columns.findIndex((col) =>
+            col.toLowerCase().startsWith("pd")
+        )
+        if (firstPeriodIndex === -1) continue
+
+        for (let j = firstPeriodIndex; j < columns.length; j += 2) {
+            const periodStr = columns[j]
+            const group = columns[j + 1]
+            if (!periodStr || !group) continue
+            const period = parseInt(periodStr.replace(/\D/g, ""), 10)
+            if (!isNaN(period)) {
+                entry.addLesson(period, group)
+            }
+        }
+        entries.push(entry)
+    }
+    return entries
+}
+
+/**
+ * Handles the CSV file import: reads the file, parses it, and renders the schedule table.
+ * @param {Event} event - The change event from the file input.
+ */
+function handleCSVImport(event) {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = function (e) {
+        const csvText = e.target.result
+        const schedule = parseCSVToSchedule(csvText)
+        if (schedule.length === 0) {
+            alert("No valid schedule data found in the CSV file.")
+            ui.importCsvInput.value = ""
+            return
+        }
+        displaySchedule(schedule)
+        ui.scheduleOutput.classList.remove("hidden")
+        ui.importCsvInput.value = ""
+    }
+    reader.readAsText(file)
+}
+
+/**
  * Gathers all user inputs from the form, validates them, and parses them into a parameter object.
  * @returns {Object|null} An object with all schedule parameters, or null if validation fails.
  */
 function getScheduleParameters() {
     const startDate = ui.startDateInput.value
     const dayCycle = parseInt(document.getElementById("day-cycle").value, 10)
-    const weeks = parseInt(document.getElementById("weeks").value, 10)
+    let weeks = parseInt(ui.weeksInput.value, 10)
     const daysOffInputs = document.querySelectorAll(".day-off-input")
     const daysOff = Array.from(daysOffInputs)
         .map((input) => input.value)
         .filter(Boolean)
 
+    if (isNaN(weeks) && ui.endDateInput.value && startDate) {
+        const start = new Date(startDate + "T00:00:00")
+        const end = new Date(ui.endDateInput.value + "T00:00:00")
+        if (end <= start) {
+            alert("End date must be after the start date.")
+            return null
+        }
+        weeks = Math.min(
+            Math.ceil((end.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)),
+            52
+        )
+    }
+
     if (!startDate || isNaN(dayCycle) || isNaN(weeks)) {
-        alert("Please fill in all required fields.")
+        alert("Please fill in all required fields (weeks or end date is needed).")
         return null
     }
 
@@ -482,6 +588,9 @@ function initialize() {
     ui.historyTextarea = document.getElementById("history-data")
     ui.validationBox = document.getElementById("history-validation-box")
     ui.startDateInput = document.getElementById("start-date")
+    ui.endDateInput = document.getElementById("end-date")
+    ui.weeksInput = document.getElementById("weeks")
+    ui.importCsvInput = document.getElementById("import-csv-input")
     ui.daysOffContainer = document.getElementById("days-off-container")
     ui.startDayWarning = document.getElementById("start-day-warning")
     ui.scheduleGapWarning = document.getElementById("schedule-gap-warning")
@@ -500,8 +609,17 @@ function initialize() {
     })
     ui.startDateInput.addEventListener("change", () => {
         checkStartDateWarning()
+        computeWeeksFromEndDate()
         runAllValidations()
     })
+    ui.endDateInput.addEventListener("change", () => {
+        computeWeeksFromEndDate()
+        runAllValidations()
+    })
+    ui.weeksInput.addEventListener("input", () => {
+        ui.endDateInput.value = ""
+    })
+    ui.importCsvInput.addEventListener("change", handleCSVImport)
     ui.historyTextarea.addEventListener("input", runAllValidations)
     ui.historyCheckbox.addEventListener("change", () => {
         ui.historyContainer.classList.toggle(
