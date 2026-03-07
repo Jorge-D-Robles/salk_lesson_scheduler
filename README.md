@@ -1,5 +1,24 @@
 # Scheduling Algorithm Explanation
 
+## Running Tests
+
+**Jasmine tests (browser):**
+```bash
+python -m http.server 8000
+# Open http://localhost:8000/SpecRunner.html in your browser
+```
+
+**CLI torture tests:**
+```bash
+node testing/run_torture_tests.mjs
+```
+
+**Bias analysis (generates an HTML report with charts):**
+```bash
+node testing/analyze_bias.mjs
+# Open testing/bias_report.html in your browser
+```
+
 ## Introduction: The Scheduling Problem
 
 The instrumental music program at Jonas E. Salk Middle School requires a complex scheduling solution for student pull-out lessons. The core challenge is to create a fair and consistent schedule that accommodates the school's unique structure while minimizing disruption to students' academic classes.
@@ -96,51 +115,45 @@ generateAllSlots() {
 
 -----
 
-### Phase 3: The Backtracking Solver (`solve`)
+### Phase 3: The Constructive Cycle-Based Solver (`_constructSchedule`)
 
-This recursive method is the core of the algorithm. It systematically tries to place a group in each slot, and if it reaches a dead end, it backtracks to the previous decision and tries a different path.
+This is the core of the algorithm. It is a **constructive, day-by-day greedy solver** that guarantees a fair ordering while maintaining all scheduling rules. Unlike traditional global constraint solvers, it does not backtrack across multiple days. Instead, it proceeds linearly, day after day, ensuring rapid execution.
 
-#### The Recursive Logic
+#### The Daily Construction Logic
 
-1.  **Base Case:** The recursion stops when a valid group has been placed in every single slot (`index >= slots.length`).
-
-2.  **Recursive Step:** For the current slot at `slots[index]`:
-
-    a. **Candidate Selection & Heuristic:** It gets all possible groups and sorts them so that groups that have gone the longest without a lesson in the current period are tried first. This heuristic helps find a valid path more quickly.
-
-    b. **Constraint Checking:** It iterates through each candidate group and checks if placing it in the current slot violates any rules:
-
-      * **Weekly Rule:** A group cannot have more than one lesson in the same week.
-      * **Period Separation Rule:** A group cannot be assigned to the same period if its last assignment was less than `dayRule` days ago (e.g., 28 or 21 days).
-      * **Makeup ('MU') Rule:** The 'MU' group can only appear once on any given day. This is validated in the `assertNoMUClustering` helper function.
-
-    c. **Recurse & Backtrack:** If the placement is valid, the algorithm calls itself to solve for the next slot. If that path fails, it "backtracks" by undoing the choice and trying the next candidate group.
+1.  **Candidate Selection:** For a given day, the solver identifies the lesson groups that have not yet had a lesson in the current cycle or week.
+    *   It prefers groups that are currently "pending" in the current cycle, maintaining the order in which groups were seen.
+    *   If no groups from the current cycle fit, it pulls from the next cycle.
+2.  **Intra-Day Backtracking (`_solveDayAssignment`):** To assign specific groups to specific periods *within that day*, the algorithm uses a rigorous backtracking solver equipped with the **Minimum Remaining Values (MRV)** heuristic. It evaluates:
+    *   **The Period Constraint:** Ensuring a group hasn't been in that specific period recently (enforcing the `dayRule`, e.g., 28 days).
+    *   **The MRV Heuristic:** It always tries to fill the period slot that has the *fewest* valid candidate groups available first, drastically reducing the search space.
+3.  **Within-Day Sorting:** After a visually valid combination is found, the lessons are sorted within the day so that the global sequence of lessons consistently mirrors the expected cycle, ensuring the most balanced long-term rotation.
 
 -----
 
 ### The Orchestrator (`buildSchedule`)
 
-This is the public-facing method that controls the solving process. It employs a two-pass strategy.
+This is the public-facing method that controls the solving process. Because the greedy solver is blazingly fast but might occasionally fail on impossible bottlenecks, this orchestrator uses a two-pass strategy.
 
-1.  **"Perfect" Attempt:** It first calls `solve` with a strict `dayRule` of **28**.
-2.  **"High-Quality" Fallback:** If the 28-day constraint proves impossible, the method resets and tries again with a more relaxed `dayRule` of **21**.
+1.  **"Perfect" Attempt:** It first attempts to construct the complete schedule linearly using a strict `dayRule` of **28 days** separating same-period occurrences.
+2.  **"High-Quality" Fallback:** If the calendar constraints (such as excessive random holidays) cause a day to be impossible under the 28-day rule, the orchestrator resets completely. It re-attempts building the entire schedule using a relaxed `dayRule` of **21 days**.
 
 <!-- end list -->
 
 ```javascript
 buildSchedule() {
     const slots = this.generateAllSlots();
-    // ... state initialization ...
+    // ... group slots by day ...
 
-    console.log("Attempting to find a perfect schedule with a 28-day constraint...");
-    if (this.solve(/*...,*/ 28)) {
+    console.log(`Attempting to find a perfect schedule with a 28-day constraint...`);
+    let schedule = this._constructSchedule(days, 28);
+    if (schedule) {
         return schedule; // Success!
     }
 
-    // Reset state for the second attempt
-    // ...
-    console.log("No 28-day solution found. Attempting a high-quality schedule with a 21-day constraint...");
-    if (this.solve(/*...,*/ 21)) {
+    console.log(`No 28-day solution. Attempting high-quality schedule with a 21-day constraint...`);
+    schedule = this._constructSchedule(days, 21);
+    if (schedule) {
         return schedule; // Success on the second try
     }
 

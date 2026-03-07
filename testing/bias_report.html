@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Scheduler Bias Analysis — 210 Schedules</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; padding: 24px; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 2px solid #ddd; padding-bottom: 6px; }
+  .summary { background: #fff; padding: 16px 20px; border-radius: 8px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .summary p { margin: 4px 0; font-size: 14px; }
+  .stat { font-weight: 600; color: #1a73e8; }
+  .chart-container { background: #fff; padding: 20px; border-radius: 8px; margin: 16px 0; box-shadow: 0 1px 3px rgba(0,0,0,.1); overflow-x: auto; }
+  svg text { font-family: inherit; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid #eee; }
+  th { background: #fafafa; font-weight: 600; position: sticky; top: 0; }
+  td:first-child, th:first-child { text-align: left; font-weight: 600; }
+  tr:hover td { background: #f0f7ff; }
+  .pos { color: #0d7c3d; }
+  .neg { color: #c5221f; }
+</style>
+</head>
+<body>
+<h1>Scheduler Group Bias Analysis</h1>
+<div class="summary">
+  <p><span class="stat">210</span> schedules analyzed (105 scenarios × 2 day cycles)</p>
+  <p>Grand mean per group: <span class="stat">7313.0</span> lessons</p>
+  <p>Standard deviation: <span class="stat">7.72</span> lessons (<span class="stat">0.106%</span>)</p>
+  <p>Aggregate range: <span class="stat">34</span> lessons (0.162 per schedule)</p>
+  <p>Per-schedule spread: 0: 5, 1: 205</p>
+</div>
+
+<h2>1. Total Lessons Per Group (deviation from mean)</h2>
+<div class="chart-container">
+<svg width="700" height="612" viewBox="0 0 700 612">
+  <line x1="350" y1="20" x2="350" y2="602" stroke="#999" stroke-dasharray="4"/>
+  <text x="350" y="16" text-anchor="middle" font-size="11" fill="#666">mean (7313.0)</text>
+  <text x="30" y="45" font-size="13" font-weight="600">R</text><rect x="350" y="30" width="280" height="22" fill="#0d7c3d" rx="3"/><text x="634" y="45" font-size="11" text-anchor="start" fill="#0d7c3d">+18.0</text><text x="30" y="71" font-size="13" font-weight="600">F</text><rect x="350" y="56" width="155.24050632911104" height="22" fill="#0d7c3d" rx="3"/><text x="509.24050632911104" y="71" font-size="11" text-anchor="start" fill="#0d7c3d">+10.0</text><text x="30" y="97" font-size="13" font-weight="600">D</text><rect x="350" y="82" width="139.64556962024992" height="22" fill="#0d7c3d" rx="3"/><text x="493.64556962024994" y="97" font-size="11" text-anchor="start" fill="#0d7c3d">+9.0</text><text x="30" y="123" font-size="13" font-weight="600">I</text><rect x="350" y="108" width="139.64556962024992" height="22" fill="#0d7c3d" rx="3"/><text x="493.64556962024994" y="123" font-size="11" text-anchor="start" fill="#0d7c3d">+9.0</text><text x="30" y="149" font-size="13" font-weight="600">G</text><rect x="350" y="134" width="92.86075949366658" height="22" fill="#0d7c3d" rx="3"/><text x="446.8607594936666" y="149" font-size="11" text-anchor="start" fill="#0d7c3d">+6.0</text><text x="30" y="175" font-size="13" font-weight="600">T</text><rect x="350" y="160" width="61.67088607594434" height="22" fill="#0d7c3d" rx="3"/><text x="415.67088607594434" y="175" font-size="11" text-anchor="start" fill="#0d7c3d">+4.0</text><text x="30" y="201" font-size="13" font-weight="600">U</text><rect x="350" y="186" width="61.67088607594434" height="22" fill="#0d7c3d" rx="3"/><text x="415.67088607594434" y="201" font-size="11" text-anchor="start" fill="#0d7c3d">+4.0</text><text x="30" y="227" font-size="13" font-weight="600">J</text><rect x="350" y="212" width="46.07594936708322" height="22" fill="#0d7c3d" rx="3"/><text x="400.07594936708324" y="227" font-size="11" text-anchor="start" fill="#0d7c3d">+3.0</text><text x="30" y="253" font-size="13" font-weight="600">S</text><rect x="350" y="238" width="46.07594936708322" height="22" fill="#0d7c3d" rx="3"/><text x="400.07594936708324" y="253" font-size="11" text-anchor="start" fill="#0d7c3d">+3.0</text><text x="30" y="279" font-size="13" font-weight="600">N</text><rect x="350" y="264" width="30.481012658222102" height="22" fill="#0d7c3d" rx="3"/><text x="384.4810126582221" y="279" font-size="11" text-anchor="start" fill="#0d7c3d">+2.0</text><text x="30" y="305" font-size="13" font-weight="600">C</text><rect x="350" y="290" width="14.886075949360984" height="22" fill="#0d7c3d" rx="3"/><text x="368.886075949361" y="305" font-size="11" text-anchor="start" fill="#0d7c3d">+1.0</text><text x="30" y="331" font-size="13" font-weight="600">L</text><rect x="333.69620253163873" y="316" width="16.303797468361253" height="22" fill="#c5221f" rx="3"/><text x="329.69620253163873" y="331" font-size="11" text-anchor="end" fill="#c5221f">-1.0</text><text x="30" y="357" font-size="13" font-weight="600">Q</text><rect x="318.10126582277763" y="342" width="31.89873417722237" height="22" fill="#c5221f" rx="3"/><text x="314.10126582277763" y="357" font-size="11" text-anchor="end" fill="#c5221f">-2.0</text><text x="30" y="383" font-size="13" font-weight="600">E</text><rect x="302.50632911391654" y="368" width="47.493670886083486" height="22" fill="#c5221f" rx="3"/><text x="298.50632911391654" y="383" font-size="11" text-anchor="end" fill="#c5221f">-3.0</text><text x="30" y="409" font-size="13" font-weight="600">H</text><rect x="302.50632911391654" y="394" width="47.493670886083486" height="22" fill="#c5221f" rx="3"/><text x="298.50632911391654" y="409" font-size="11" text-anchor="end" fill="#c5221f">-3.0</text><text x="30" y="435" font-size="13" font-weight="600">O</text><rect x="286.9113924050554" y="420" width="63.088607594944605" height="22" fill="#c5221f" rx="3"/><text x="282.9113924050554" y="435" font-size="11" text-anchor="end" fill="#c5221f">-4.0</text><text x="30" y="461" font-size="13" font-weight="600">M</text><rect x="271.3164556961943" y="446" width="78.68354430380572" height="22" fill="#c5221f" rx="3"/><text x="267.3164556961943" y="461" font-size="11" text-anchor="end" fill="#c5221f">-5.0</text><text x="30" y="487" font-size="13" font-weight="600">P</text><rect x="271.3164556961943" y="472" width="78.68354430380572" height="22" fill="#c5221f" rx="3"/><text x="267.3164556961943" y="487" font-size="11" text-anchor="end" fill="#c5221f">-5.0</text><text x="30" y="513" font-size="13" font-weight="600">V</text><rect x="224.53164556961093" y="498" width="125.46835443038908" height="22" fill="#c5221f" rx="3"/><text x="220.53164556961093" y="513" font-size="11" text-anchor="end" fill="#c5221f">-8.0</text><text x="30" y="539" font-size="13" font-weight="600">K</text><rect x="208.9367088607498" y="524" width="141.0632911392502" height="22" fill="#c5221f" rx="3"/><text x="204.9367088607498" y="539" font-size="11" text-anchor="end" fill="#c5221f">-9.0</text><text x="30" y="565" font-size="13" font-weight="600">A</text><rect x="162.15189873416645" y="550" width="187.84810126583355" height="22" fill="#c5221f" rx="3"/><text x="158.15189873416645" y="565" font-size="11" text-anchor="end" fill="#c5221f">-12.0</text><text x="30" y="591" font-size="13" font-weight="600">B</text><rect x="99.77215189872197" y="576" width="250.22784810127803" height="22" fill="#c5221f" rx="3"/><text x="95.77215189872197" y="591" font-size="11" text-anchor="end" fill="#c5221f">-16.0</text>
+</svg>
+</div>
+
+<h2>2. Per-Schedule Distribution (box plot)</h2>
+<div class="chart-container">
+<svg width="700" height="612" viewBox="0 0 700 612">
+  <line x1="60" y1="20" x2="60" y2="602" stroke="#eee"/><text x="60" y="16" text-anchor="middle" font-size="10" fill="#999">32</text><line x1="180" y1="20" x2="180" y2="602" stroke="#eee"/><text x="180" y="16" text-anchor="middle" font-size="10" fill="#999">33</text><line x1="300" y1="20" x2="300" y2="602" stroke="#eee"/><text x="300" y="16" text-anchor="middle" font-size="10" fill="#999">34</text><line x1="420" y1="20" x2="420" y2="602" stroke="#eee"/><text x="420" y="16" text-anchor="middle" font-size="10" fill="#999">35</text><line x1="540" y1="20" x2="540" y2="602" stroke="#eee"/><text x="540" y="16" text-anchor="middle" font-size="10" fill="#999">36</text><line x1="660" y1="20" x2="660" y2="602" stroke="#eee"/><text x="660" y="16" text-anchor="middle" font-size="10" fill="#999">37</text><text x="30" y="45" font-size="13" font-weight="600">R</text><line x1="180" y1="41" x2="300" y2="41" stroke="#666" stroke-width="1.5"/><line x1="420" y1="41" x2="660" y2="41" stroke="#666" stroke-width="1.5"/><line x1="180" y1="36" x2="180" y2="46" stroke="#666" stroke-width="1.5"/><line x1="660" y1="36" x2="660" y2="46" stroke="#666" stroke-width="1.5"/><rect x="300" y="32" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="31" x2="420" y2="51" stroke="#1a73e8" stroke-width="2"/><circle cx="409.1428571428574" cy="41" r="3" fill="#e8710a"/><text x="30" y="71" font-size="13" font-weight="600">F</text><line x1="60" y1="67" x2="300" y2="67" stroke="#666" stroke-width="1.5"/><line x1="420" y1="67" x2="540" y2="67" stroke="#666" stroke-width="1.5"/><line x1="60" y1="62" x2="60" y2="72" stroke="#666" stroke-width="1.5"/><line x1="540" y1="62" x2="540" y2="72" stroke="#666" stroke-width="1.5"/><rect x="300" y="58" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="57" x2="420" y2="77" stroke="#1a73e8" stroke-width="2"/><circle cx="404.57142857142884" cy="67" r="3" fill="#e8710a"/><text x="30" y="97" font-size="13" font-weight="600">D</text><line x1="180" y1="93" x2="300" y2="93" stroke="#666" stroke-width="1.5"/><line x1="420" y1="93" x2="540" y2="93" stroke="#666" stroke-width="1.5"/><line x1="180" y1="88" x2="180" y2="98" stroke="#666" stroke-width="1.5"/><line x1="540" y1="88" x2="540" y2="98" stroke="#666" stroke-width="1.5"/><rect x="300" y="84" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="83" x2="420" y2="103" stroke="#1a73e8" stroke-width="2"/><circle cx="404.00000000000006" cy="93" r="3" fill="#e8710a"/><text x="30" y="123" font-size="13" font-weight="600">I</text><line x1="180" y1="119" x2="300" y2="119" stroke="#666" stroke-width="1.5"/><line x1="420" y1="119" x2="660" y2="119" stroke="#666" stroke-width="1.5"/><line x1="180" y1="114" x2="180" y2="124" stroke="#666" stroke-width="1.5"/><line x1="660" y1="114" x2="660" y2="124" stroke="#666" stroke-width="1.5"/><rect x="300" y="110" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="109" x2="420" y2="129" stroke="#1a73e8" stroke-width="2"/><circle cx="404.00000000000006" cy="119" r="3" fill="#e8710a"/><text x="30" y="149" font-size="13" font-weight="600">G</text><line x1="180" y1="145" x2="300" y2="145" stroke="#666" stroke-width="1.5"/><line x1="420" y1="145" x2="540" y2="145" stroke="#666" stroke-width="1.5"/><line x1="180" y1="140" x2="180" y2="150" stroke="#666" stroke-width="1.5"/><line x1="540" y1="140" x2="540" y2="150" stroke="#666" stroke-width="1.5"/><rect x="300" y="136" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="135" x2="420" y2="155" stroke="#1a73e8" stroke-width="2"/><circle cx="402.28571428571456" cy="145" r="3" fill="#e8710a"/><text x="30" y="175" font-size="13" font-weight="600">T</text><line x1="60" y1="171" x2="300" y2="171" stroke="#666" stroke-width="1.5"/><line x1="420" y1="171" x2="540" y2="171" stroke="#666" stroke-width="1.5"/><line x1="60" y1="166" x2="60" y2="176" stroke="#666" stroke-width="1.5"/><line x1="540" y1="166" x2="540" y2="176" stroke="#666" stroke-width="1.5"/><rect x="300" y="162" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="161" x2="420" y2="181" stroke="#1a73e8" stroke-width="2"/><circle cx="401.142857142857" cy="171" r="3" fill="#e8710a"/><text x="30" y="201" font-size="13" font-weight="600">U</text><line x1="180" y1="197" x2="300" y2="197" stroke="#666" stroke-width="1.5"/><line x1="420" y1="197" x2="540" y2="197" stroke="#666" stroke-width="1.5"/><line x1="180" y1="192" x2="180" y2="202" stroke="#666" stroke-width="1.5"/><line x1="540" y1="192" x2="540" y2="202" stroke="#666" stroke-width="1.5"/><rect x="300" y="188" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="187" x2="420" y2="207" stroke="#1a73e8" stroke-width="2"/><circle cx="401.142857142857" cy="197" r="3" fill="#e8710a"/><text x="30" y="227" font-size="13" font-weight="600">J</text><line x1="180" y1="223" x2="300" y2="223" stroke="#666" stroke-width="1.5"/><line x1="420" y1="223" x2="540" y2="223" stroke="#666" stroke-width="1.5"/><line x1="180" y1="218" x2="180" y2="228" stroke="#666" stroke-width="1.5"/><line x1="540" y1="218" x2="540" y2="228" stroke="#666" stroke-width="1.5"/><rect x="300" y="214" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="213" x2="420" y2="233" stroke="#1a73e8" stroke-width="2"/><circle cx="400.5714285714282" cy="223" r="3" fill="#e8710a"/><text x="30" y="253" font-size="13" font-weight="600">S</text><line x1="60" y1="249" x2="300" y2="249" stroke="#666" stroke-width="1.5"/><line x1="420" y1="249" x2="540" y2="249" stroke="#666" stroke-width="1.5"/><line x1="60" y1="244" x2="60" y2="254" stroke="#666" stroke-width="1.5"/><line x1="540" y1="244" x2="540" y2="254" stroke="#666" stroke-width="1.5"/><rect x="300" y="240" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="239" x2="420" y2="259" stroke="#1a73e8" stroke-width="2"/><circle cx="400.5714285714282" cy="249" r="3" fill="#e8710a"/><text x="30" y="279" font-size="13" font-weight="600">N</text><line x1="60" y1="275" x2="300" y2="275" stroke="#666" stroke-width="1.5"/><line x1="420" y1="275" x2="660" y2="275" stroke="#666" stroke-width="1.5"/><line x1="60" y1="270" x2="60" y2="280" stroke="#666" stroke-width="1.5"/><line x1="660" y1="270" x2="660" y2="280" stroke="#666" stroke-width="1.5"/><rect x="300" y="266" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="265" x2="420" y2="285" stroke="#1a73e8" stroke-width="2"/><circle cx="400.0000000000003" cy="275" r="3" fill="#e8710a"/><text x="30" y="305" font-size="13" font-weight="600">C</text><line x1="60" y1="301" x2="300" y2="301" stroke="#666" stroke-width="1.5"/><line x1="420" y1="301" x2="540" y2="301" stroke="#666" stroke-width="1.5"/><line x1="60" y1="296" x2="60" y2="306" stroke="#666" stroke-width="1.5"/><line x1="540" y1="296" x2="540" y2="306" stroke="#666" stroke-width="1.5"/><rect x="300" y="292" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="291" x2="420" y2="311" stroke="#1a73e8" stroke-width="2"/><circle cx="399.4285714285715" cy="301" r="3" fill="#e8710a"/><text x="30" y="331" font-size="13" font-weight="600">L</text><line x1="60" y1="327" x2="300" y2="327" stroke="#666" stroke-width="1.5"/><line x1="420" y1="327" x2="660" y2="327" stroke="#666" stroke-width="1.5"/><line x1="60" y1="322" x2="60" y2="332" stroke="#666" stroke-width="1.5"/><line x1="660" y1="322" x2="660" y2="332" stroke="#666" stroke-width="1.5"/><rect x="300" y="318" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="317" x2="420" y2="337" stroke="#1a73e8" stroke-width="2"/><circle cx="398.28571428571394" cy="327" r="3" fill="#e8710a"/><text x="30" y="357" font-size="13" font-weight="600">Q</text><line x1="60" y1="353" x2="300" y2="353" stroke="#666" stroke-width="1.5"/><line x1="420" y1="353" x2="540" y2="353" stroke="#666" stroke-width="1.5"/><line x1="60" y1="348" x2="60" y2="358" stroke="#666" stroke-width="1.5"/><line x1="540" y1="348" x2="540" y2="358" stroke="#666" stroke-width="1.5"/><rect x="300" y="344" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="343" x2="420" y2="363" stroke="#1a73e8" stroke-width="2"/><circle cx="397.714285714286" cy="353" r="3" fill="#e8710a"/><text x="30" y="383" font-size="13" font-weight="600">E</text><line x1="180" y1="379" x2="300" y2="379" stroke="#666" stroke-width="1.5"/><line x1="420" y1="379" x2="540" y2="379" stroke="#666" stroke-width="1.5"/><line x1="180" y1="374" x2="180" y2="384" stroke="#666" stroke-width="1.5"/><line x1="540" y1="374" x2="540" y2="384" stroke="#666" stroke-width="1.5"/><rect x="300" y="370" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="369" x2="420" y2="389" stroke="#1a73e8" stroke-width="2"/><circle cx="397.1428571428572" cy="379" r="3" fill="#e8710a"/><text x="30" y="409" font-size="13" font-weight="600">H</text><line x1="180" y1="405" x2="300" y2="405" stroke="#666" stroke-width="1.5"/><line x1="420" y1="405" x2="540" y2="405" stroke="#666" stroke-width="1.5"/><line x1="180" y1="400" x2="180" y2="410" stroke="#666" stroke-width="1.5"/><line x1="540" y1="400" x2="540" y2="410" stroke="#666" stroke-width="1.5"/><rect x="300" y="396" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="395" x2="420" y2="415" stroke="#1a73e8" stroke-width="2"/><circle cx="397.1428571428572" cy="405" r="3" fill="#e8710a"/><text x="30" y="435" font-size="13" font-weight="600">O</text><line x1="60" y1="431" x2="300" y2="431" stroke="#666" stroke-width="1.5"/><line x1="420" y1="431" x2="660" y2="431" stroke="#666" stroke-width="1.5"/><line x1="60" y1="426" x2="60" y2="436" stroke="#666" stroke-width="1.5"/><line x1="660" y1="426" x2="660" y2="436" stroke="#666" stroke-width="1.5"/><rect x="300" y="422" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="421" x2="420" y2="441" stroke="#1a73e8" stroke-width="2"/><circle cx="396.57142857142844" cy="431" r="3" fill="#e8710a"/><text x="30" y="461" font-size="13" font-weight="600">M</text><line x1="60" y1="457" x2="300" y2="457" stroke="#666" stroke-width="1.5"/><line x1="420" y1="457" x2="540" y2="457" stroke="#666" stroke-width="1.5"/><line x1="60" y1="452" x2="60" y2="462" stroke="#666" stroke-width="1.5"/><line x1="540" y1="452" x2="540" y2="462" stroke="#666" stroke-width="1.5"/><rect x="300" y="448" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="447" x2="420" y2="467" stroke="#1a73e8" stroke-width="2"/><circle cx="395.99999999999966" cy="457" r="3" fill="#e8710a"/><text x="30" y="487" font-size="13" font-weight="600">P</text><line x1="60" y1="483" x2="300" y2="483" stroke="#666" stroke-width="1.5"/><line x1="420" y1="483" x2="540" y2="483" stroke="#666" stroke-width="1.5"/><line x1="60" y1="478" x2="60" y2="488" stroke="#666" stroke-width="1.5"/><line x1="540" y1="478" x2="540" y2="488" stroke="#666" stroke-width="1.5"/><rect x="300" y="474" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="473" x2="420" y2="493" stroke="#1a73e8" stroke-width="2"/><circle cx="395.99999999999966" cy="483" r="3" fill="#e8710a"/><text x="30" y="513" font-size="13" font-weight="600">V</text><line x1="60" y1="509" x2="300" y2="509" stroke="#666" stroke-width="1.5"/><line x1="420" y1="509" x2="540" y2="509" stroke="#666" stroke-width="1.5"/><line x1="60" y1="504" x2="60" y2="514" stroke="#666" stroke-width="1.5"/><line x1="540" y1="504" x2="540" y2="514" stroke="#666" stroke-width="1.5"/><rect x="300" y="500" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="499" x2="420" y2="519" stroke="#1a73e8" stroke-width="2"/><circle cx="394.28571428571416" cy="509" r="3" fill="#e8710a"/><text x="30" y="539" font-size="13" font-weight="600">K</text><line x1="180" y1="535" x2="300" y2="535" stroke="#666" stroke-width="1.5"/><line x1="420" y1="535" x2="540" y2="535" stroke="#666" stroke-width="1.5"/><line x1="180" y1="530" x2="180" y2="540" stroke="#666" stroke-width="1.5"/><line x1="540" y1="530" x2="540" y2="540" stroke="#666" stroke-width="1.5"/><rect x="300" y="526" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="525" x2="420" y2="545" stroke="#1a73e8" stroke-width="2"/><circle cx="393.7142857142854" cy="535" r="3" fill="#e8710a"/><text x="30" y="565" font-size="13" font-weight="600">A</text><line x1="180" y1="561" x2="300" y2="561" stroke="#666" stroke-width="1.5"/><line x1="420" y1="561" x2="540" y2="561" stroke="#666" stroke-width="1.5"/><line x1="180" y1="556" x2="180" y2="566" stroke="#666" stroke-width="1.5"/><line x1="540" y1="556" x2="540" y2="566" stroke="#666" stroke-width="1.5"/><rect x="300" y="552" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="551" x2="420" y2="571" stroke="#1a73e8" stroke-width="2"/><circle cx="391.9999999999999" cy="561" r="3" fill="#e8710a"/><text x="30" y="591" font-size="13" font-weight="600">B</text><line x1="60" y1="587" x2="300" y2="587" stroke="#666" stroke-width="1.5"/><line x1="420" y1="587" x2="540" y2="587" stroke="#666" stroke-width="1.5"/><line x1="60" y1="582" x2="60" y2="592" stroke="#666" stroke-width="1.5"/><line x1="540" y1="582" x2="540" y2="592" stroke="#666" stroke-width="1.5"/><rect x="300" y="578" width="120" height="18" fill="#c8e0f4" stroke="#4a90d9" rx="2"/><line x1="420" y1="577" x2="420" y2="597" stroke="#1a73e8" stroke-width="2"/><circle cx="389.7142857142856" cy="587" r="3" fill="#e8710a"/>
+  <text x="665" y="16" font-size="9" fill="#1a73e8">■ median</text>
+  <text x="665" y="28" font-size="9" fill="#e8710a">● mean</text>
+</svg>
+</div>
+
+<h2>3. Bias at Min/Max (how often each group lands at floor vs ceil)</h2>
+<div class="chart-container">
+<svg width="700" height="612" viewBox="0 0 700 612">
+  <line x1="350" y1="10" x2="350" y2="602" stroke="#999" stroke-dasharray="4"/>
+  <text x="355" y="16" font-size="11" fill="#0d7c3d">← At Max (ceil)</text>
+  <text x="345" y="16" font-size="11" fill="#c5221f" text-anchor="end">At Min (floor) →</text>
+  <text x="30" y="45" font-size="13" font-weight="600">R</text><rect x="350" y="30" width="225.21739130434784" height="11" fill="#0d7c3d" rx="2"/><text x="578.2173913043479" y="38.5" font-size="10" fill="#0d7c3d">111</text><rect x="138.9855072463768" y="41" width="211.0144927536232" height="11" fill="#c5221f" rx="2"/><text x="135.9855072463768" y="49.5" font-size="10" fill="#c5221f" text-anchor="end">104</text><text x="30" y="71" font-size="13" font-weight="600">F</text><rect x="350" y="56" width="208.9855072463768" height="11" fill="#0d7c3d" rx="2"/><text x="561.9855072463768" y="64.5" font-size="10" fill="#0d7c3d">103</text><rect x="122.75362318840578" y="67" width="227.24637681159422" height="11" fill="#c5221f" rx="2"/><text x="119.75362318840578" y="75.5" font-size="10" fill="#c5221f" text-anchor="end">112</text><text x="30" y="97" font-size="13" font-weight="600">D</text><rect x="350" y="82" width="206.95652173913044" height="11" fill="#0d7c3d" rx="2"/><text x="559.9565217391305" y="90.5" font-size="10" fill="#0d7c3d">102</text><rect x="120.72463768115941" y="93" width="229.2753623188406" height="11" fill="#c5221f" rx="2"/><text x="117.72463768115941" y="101.5" font-size="10" fill="#c5221f" text-anchor="end">113</text><text x="30" y="123" font-size="13" font-weight="600">I</text><rect x="350" y="108" width="206.95652173913044" height="11" fill="#0d7c3d" rx="2"/><text x="559.9565217391305" y="116.5" font-size="10" fill="#0d7c3d">102</text><rect x="120.72463768115941" y="119" width="229.2753623188406" height="11" fill="#c5221f" rx="2"/><text x="117.72463768115941" y="127.5" font-size="10" fill="#c5221f" text-anchor="end">113</text><text x="30" y="149" font-size="13" font-weight="600">G</text><rect x="350" y="134" width="200.8695652173913" height="11" fill="#0d7c3d" rx="2"/><text x="553.8695652173913" y="142.5" font-size="10" fill="#0d7c3d">99</text><rect x="114.63768115942028" y="145" width="235.36231884057972" height="11" fill="#c5221f" rx="2"/><text x="111.63768115942028" y="153.5" font-size="10" fill="#c5221f" text-anchor="end">116</text><text x="30" y="175" font-size="13" font-weight="600">T</text><rect x="350" y="160" width="196.81159420289856" height="11" fill="#0d7c3d" rx="2"/><text x="549.8115942028985" y="168.5" font-size="10" fill="#0d7c3d">97</text><rect x="110.57971014492753" y="171" width="239.42028985507247" height="11" fill="#c5221f" rx="2"/><text x="107.57971014492753" y="179.5" font-size="10" fill="#c5221f" text-anchor="end">118</text><text x="30" y="201" font-size="13" font-weight="600">U</text><rect x="350" y="186" width="196.81159420289856" height="11" fill="#0d7c3d" rx="2"/><text x="549.8115942028985" y="194.5" font-size="10" fill="#0d7c3d">97</text><rect x="110.57971014492753" y="197" width="239.42028985507247" height="11" fill="#c5221f" rx="2"/><text x="107.57971014492753" y="205.5" font-size="10" fill="#c5221f" text-anchor="end">118</text><text x="30" y="227" font-size="13" font-weight="600">J</text><rect x="350" y="212" width="194.7826086956522" height="11" fill="#0d7c3d" rx="2"/><text x="547.7826086956522" y="220.5" font-size="10" fill="#0d7c3d">96</text><rect x="108.55072463768116" y="223" width="241.44927536231884" height="11" fill="#c5221f" rx="2"/><text x="105.55072463768116" y="231.5" font-size="10" fill="#c5221f" text-anchor="end">119</text><text x="30" y="253" font-size="13" font-weight="600">S</text><rect x="350" y="238" width="194.7826086956522" height="11" fill="#0d7c3d" rx="2"/><text x="547.7826086956522" y="246.5" font-size="10" fill="#0d7c3d">96</text><rect x="108.55072463768116" y="249" width="241.44927536231884" height="11" fill="#c5221f" rx="2"/><text x="105.55072463768116" y="257.5" font-size="10" fill="#c5221f" text-anchor="end">119</text><text x="30" y="279" font-size="13" font-weight="600">N</text><rect x="350" y="264" width="192.7536231884058" height="11" fill="#0d7c3d" rx="2"/><text x="545.7536231884058" y="272.5" font-size="10" fill="#0d7c3d">95</text><rect x="106.52173913043475" y="275" width="243.47826086956525" height="11" fill="#c5221f" rx="2"/><text x="103.52173913043475" y="283.5" font-size="10" fill="#c5221f" text-anchor="end">120</text><text x="30" y="305" font-size="13" font-weight="600">C</text><rect x="350" y="290" width="190.72463768115944" height="11" fill="#0d7c3d" rx="2"/><text x="543.7246376811595" y="298.5" font-size="10" fill="#0d7c3d">94</text><rect x="104.49275362318838" y="301" width="245.50724637681162" height="11" fill="#c5221f" rx="2"/><text x="101.49275362318838" y="309.5" font-size="10" fill="#c5221f" text-anchor="end">121</text><text x="30" y="331" font-size="13" font-weight="600">L</text><rect x="350" y="316" width="186.66666666666669" height="11" fill="#0d7c3d" rx="2"/><text x="539.6666666666667" y="324.5" font-size="10" fill="#0d7c3d">92</text><rect x="100.43478260869563" y="327" width="249.56521739130437" height="11" fill="#c5221f" rx="2"/><text x="97.43478260869563" y="335.5" font-size="10" fill="#c5221f" text-anchor="end">123</text><text x="30" y="357" font-size="13" font-weight="600">Q</text><rect x="350" y="342" width="184.6376811594203" height="11" fill="#0d7c3d" rx="2"/><text x="537.6376811594203" y="350.5" font-size="10" fill="#0d7c3d">91</text><rect x="98.40579710144925" y="353" width="251.59420289855075" height="11" fill="#c5221f" rx="2"/><text x="95.40579710144925" y="361.5" font-size="10" fill="#c5221f" text-anchor="end">124</text><text x="30" y="383" font-size="13" font-weight="600">E</text><rect x="350" y="368" width="182.60869565217394" height="11" fill="#0d7c3d" rx="2"/><text x="535.608695652174" y="376.5" font-size="10" fill="#0d7c3d">90</text><rect x="96.37681159420288" y="379" width="253.62318840579712" height="11" fill="#c5221f" rx="2"/><text x="93.37681159420288" y="387.5" font-size="10" fill="#c5221f" text-anchor="end">125</text><text x="30" y="409" font-size="13" font-weight="600">H</text><rect x="350" y="394" width="182.60869565217394" height="11" fill="#0d7c3d" rx="2"/><text x="535.608695652174" y="402.5" font-size="10" fill="#0d7c3d">90</text><rect x="96.37681159420288" y="405" width="253.62318840579712" height="11" fill="#c5221f" rx="2"/><text x="93.37681159420288" y="413.5" font-size="10" fill="#c5221f" text-anchor="end">125</text><text x="30" y="435" font-size="13" font-weight="600">O</text><rect x="350" y="420" width="180.57971014492756" height="11" fill="#0d7c3d" rx="2"/><text x="533.5797101449275" y="428.5" font-size="10" fill="#0d7c3d">89</text><rect x="94.3478260869565" y="431" width="255.6521739130435" height="11" fill="#c5221f" rx="2"/><text x="91.3478260869565" y="439.5" font-size="10" fill="#c5221f" text-anchor="end">126</text><text x="30" y="461" font-size="13" font-weight="600">M</text><rect x="350" y="446" width="178.55072463768118" height="11" fill="#0d7c3d" rx="2"/><text x="531.5507246376812" y="454.5" font-size="10" fill="#0d7c3d">88</text><rect x="92.31884057971013" y="457" width="257.6811594202899" height="11" fill="#c5221f" rx="2"/><text x="89.31884057971013" y="465.5" font-size="10" fill="#c5221f" text-anchor="end">127</text><text x="30" y="487" font-size="13" font-weight="600">P</text><rect x="350" y="472" width="178.55072463768118" height="11" fill="#0d7c3d" rx="2"/><text x="531.5507246376812" y="480.5" font-size="10" fill="#0d7c3d">88</text><rect x="92.31884057971013" y="483" width="257.6811594202899" height="11" fill="#c5221f" rx="2"/><text x="89.31884057971013" y="491.5" font-size="10" fill="#c5221f" text-anchor="end">127</text><text x="30" y="513" font-size="13" font-weight="600">V</text><rect x="350" y="498" width="172.46376811594203" height="11" fill="#0d7c3d" rx="2"/><text x="525.463768115942" y="506.5" font-size="10" fill="#0d7c3d">85</text><rect x="86.231884057971" y="509" width="263.768115942029" height="11" fill="#c5221f" rx="2"/><text x="83.231884057971" y="517.5" font-size="10" fill="#c5221f" text-anchor="end">130</text><text x="30" y="539" font-size="13" font-weight="600">K</text><rect x="350" y="524" width="170.43478260869566" height="11" fill="#0d7c3d" rx="2"/><text x="523.4347826086956" y="532.5" font-size="10" fill="#0d7c3d">84</text><rect x="84.20289855072463" y="535" width="265.7971014492754" height="11" fill="#c5221f" rx="2"/><text x="81.20289855072463" y="543.5" font-size="10" fill="#c5221f" text-anchor="end">131</text><text x="30" y="565" font-size="13" font-weight="600">A</text><rect x="350" y="550" width="164.34782608695653" height="11" fill="#0d7c3d" rx="2"/><text x="517.3478260869565" y="558.5" font-size="10" fill="#0d7c3d">81</text><rect x="78.1159420289855" y="561" width="271.8840579710145" height="11" fill="#c5221f" rx="2"/><text x="75.1159420289855" y="569.5" font-size="10" fill="#c5221f" text-anchor="end">134</text><text x="30" y="591" font-size="13" font-weight="600">B</text><rect x="350" y="576" width="156.23188405797103" height="11" fill="#0d7c3d" rx="2"/><text x="509.231884057971" y="584.5" font-size="10" fill="#0d7c3d">77</text><rect x="70" y="587" width="280" height="11" fill="#c5221f" rx="2"/><text x="67" y="595.5" font-size="10" fill="#c5221f" text-anchor="end">138</text>
+</svg>
+</div>
+
+<h2>4. Detailed Statistics</h2>
+<div class="chart-container" style="max-height: 600px; overflow-y: auto;">
+<table>
+<tr><th>Group</th><th>Total</th><th>Per Sched</th><th>Dev</th><th>%Dev</th><th>At Min</th><th>At Max</th><th>Min</th><th>Med</th><th>Max</th></tr>
+<tr>
+  <td>R</td><td>7331</td><td>34.91</td>
+  <td class="pos">+18.0</td>
+  <td class="pos">+0.246%</td>
+  <td>104</td><td>111</td>
+  <td>33</td><td>35</td><td>37</td>
+</tr>
+<tr>
+  <td>F</td><td>7323</td><td>34.87</td>
+  <td class="pos">+10.0</td>
+  <td class="pos">+0.136%</td>
+  <td>112</td><td>103</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>D</td><td>7322</td><td>34.87</td>
+  <td class="pos">+9.0</td>
+  <td class="pos">+0.122%</td>
+  <td>113</td><td>102</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>I</td><td>7322</td><td>34.87</td>
+  <td class="pos">+9.0</td>
+  <td class="pos">+0.122%</td>
+  <td>113</td><td>102</td>
+  <td>33</td><td>35</td><td>37</td>
+</tr>
+<tr>
+  <td>G</td><td>7319</td><td>34.85</td>
+  <td class="pos">+6.0</td>
+  <td class="pos">+0.081%</td>
+  <td>116</td><td>99</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>T</td><td>7317</td><td>34.84</td>
+  <td class="pos">+4.0</td>
+  <td class="pos">+0.054%</td>
+  <td>118</td><td>97</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>U</td><td>7317</td><td>34.84</td>
+  <td class="pos">+4.0</td>
+  <td class="pos">+0.054%</td>
+  <td>118</td><td>97</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>J</td><td>7316</td><td>34.84</td>
+  <td class="pos">+3.0</td>
+  <td class="pos">+0.040%</td>
+  <td>119</td><td>96</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>S</td><td>7316</td><td>34.84</td>
+  <td class="pos">+3.0</td>
+  <td class="pos">+0.040%</td>
+  <td>119</td><td>96</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>N</td><td>7315</td><td>34.83</td>
+  <td class="pos">+2.0</td>
+  <td class="pos">+0.027%</td>
+  <td>120</td><td>95</td>
+  <td>32</td><td>35</td><td>37</td>
+</tr>
+<tr>
+  <td>C</td><td>7314</td><td>34.83</td>
+  <td class="pos">+1.0</td>
+  <td class="pos">+0.013%</td>
+  <td>121</td><td>94</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>L</td><td>7312</td><td>34.82</td>
+  <td class="neg">-1.0</td>
+  <td class="neg">-0.014%</td>
+  <td>123</td><td>92</td>
+  <td>32</td><td>35</td><td>37</td>
+</tr>
+<tr>
+  <td>Q</td><td>7311</td><td>34.81</td>
+  <td class="neg">-2.0</td>
+  <td class="neg">-0.028%</td>
+  <td>124</td><td>91</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>E</td><td>7310</td><td>34.81</td>
+  <td class="neg">-3.0</td>
+  <td class="neg">-0.042%</td>
+  <td>125</td><td>90</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>H</td><td>7310</td><td>34.81</td>
+  <td class="neg">-3.0</td>
+  <td class="neg">-0.042%</td>
+  <td>125</td><td>90</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>O</td><td>7309</td><td>34.80</td>
+  <td class="neg">-4.0</td>
+  <td class="neg">-0.055%</td>
+  <td>126</td><td>89</td>
+  <td>32</td><td>35</td><td>37</td>
+</tr>
+<tr>
+  <td>M</td><td>7308</td><td>34.80</td>
+  <td class="neg">-5.0</td>
+  <td class="neg">-0.069%</td>
+  <td>127</td><td>88</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>P</td><td>7308</td><td>34.80</td>
+  <td class="neg">-5.0</td>
+  <td class="neg">-0.069%</td>
+  <td>127</td><td>88</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>V</td><td>7305</td><td>34.79</td>
+  <td class="neg">-8.0</td>
+  <td class="neg">-0.110%</td>
+  <td>130</td><td>85</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>K</td><td>7304</td><td>34.78</td>
+  <td class="neg">-9.0</td>
+  <td class="neg">-0.124%</td>
+  <td>131</td><td>84</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>A</td><td>7301</td><td>34.77</td>
+  <td class="neg">-12.0</td>
+  <td class="neg">-0.165%</td>
+  <td>134</td><td>81</td>
+  <td>33</td><td>35</td><td>36</td>
+</tr>
+<tr>
+  <td>B</td><td>7297</td><td>34.75</td>
+  <td class="neg">-16.0</td>
+  <td class="neg">-0.219%</td>
+  <td>138</td><td>77</td>
+  <td>32</td><td>35</td><td>36</td>
+</tr>
+</table>
+</div>
+
+</body>
+</html>

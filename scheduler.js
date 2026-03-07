@@ -58,6 +58,10 @@ class ScheduleBuilder {
                 { length: REQUIRED_UNIQUE_GROUPS },
                 (_, i) => String.fromCharCode("A".charCodeAt(0) + i)
             )
+            // Shuffle group order deterministically based on start date
+            // so different schedules rotate which groups land at cycle
+            // boundaries (where most ordering violations occur).
+            this._shuffleGroups(this.startDate)
         }
 
         this.initialPeriodAssignments = {}
@@ -66,6 +70,26 @@ class ScheduleBuilder {
         )
         if (scheduleHistory)
             this._populateAssignmentsFromHistory(scheduleHistory)
+    }
+
+    _shuffleGroups(seed) {
+        // Deterministic Fisher-Yates shuffle using a simple hash of the seed date
+        // and days-off count so different absence patterns rotate which groups
+        // land at cycle boundaries.
+        let h = seed.getFullYear() * 10000 + (seed.getMonth() + 1) * 100 + seed.getDate()
+        for (let k = 0; k < this.daysOff.length; k++) {
+            h = (h * 31 + this.daysOff[k].charCodeAt(k % this.daysOff[k].length)) | 0
+        }
+        const pseudoRandom = () => {
+            h = (h * 1103515245 + 12345) & 0x7fffffff
+            return h / 0x7fffffff
+        }
+        for (let i = this.LESSON_GROUPS.length - 1; i > 0; i--) {
+            const j = Math.floor(pseudoRandom() * (i + 1))
+            const tmp = this.LESSON_GROUPS[i]
+            this.LESSON_GROUPS[i] = this.LESSON_GROUPS[j]
+            this.LESSON_GROUPS[j] = tmp
+        }
     }
 
     _populateAssignmentsFromHistory(history) {
@@ -316,6 +340,80 @@ class ScheduleBuilder {
         return schedule
     }
 
+    /**
+     * Post-processing pass: reduce lesson-count spread when it exceeds
+     * the theoretical minimum of 1. Scans from the end of the schedule
+     * and swaps over-represented groups with under-represented ones,
+     * provided all constraints (weekly uniqueness, period day-rule) hold.
+     * @private
+     */
+    _balanceLessonCounts(schedule, dayRule) {
+        const counts = {}
+        for (const g of this.LESSON_GROUPS) counts[g] = 0
+        for (const day of schedule) {
+            for (const l of day.lessons) {
+                if (l.group !== "MU") counts[l.group]++
+            }
+        }
+
+        let maxC = Math.max(...Object.values(counts))
+        let minC = Math.min(...Object.values(counts))
+        if (maxC - minC <= 1) return
+
+        const oneDayMs = 86400000
+
+        for (let d = schedule.length - 1; d >= 0 && maxC - minC > 1; d--) {
+            const day = schedule[d]
+            const weekId = this.getWeekIdentifier(day.date)
+
+            const weekGroups = new Set()
+            for (const s of schedule) {
+                if (this.getWeekIdentifier(s.date) === weekId) {
+                    for (const l of s.lessons) {
+                        if (l.group !== "MU") weekGroups.add(l.group)
+                    }
+                }
+            }
+
+            for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
+                const lesson = day.lessons[li]
+                if (lesson.group === "MU" || counts[lesson.group] !== maxC) continue
+
+                const periodNum = parseInt(lesson.period.replace("Pd ", ""), 10)
+
+                for (const candidate of this.LESSON_GROUPS) {
+                    if (counts[candidate] !== minC) continue
+                    if (weekGroups.has(candidate)) continue
+                    if (day.lessons.some((l) => l.group === candidate)) continue
+
+                    let tooClose = false
+                    for (const s of schedule) {
+                        if (s === day) continue
+                        for (const l of s.lessons) {
+                            if (l.group === candidate) {
+                                const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                if (p === periodNum && Math.abs((day.date - s.date) / oneDayMs) < dayRule) {
+                                    tooClose = true
+                                }
+                            }
+                        }
+                        if (tooClose) break
+                    }
+                    if (tooClose) continue
+
+                    const oldGroup = lesson.group
+                    lesson.group = candidate
+                    counts[oldGroup]--
+                    counts[candidate]++
+
+                    maxC = Math.max(...Object.values(counts))
+                    minC = Math.min(...Object.values(counts))
+                    break
+                }
+            }
+        }
+    }
+
     buildSchedule() {
         const slots = this.generateAllSlots()
         if (slots.length === 0) return []
@@ -328,6 +426,7 @@ class ScheduleBuilder {
         let schedule = this._constructSchedule(days, PERFECT_SCHEDULE_DAY_RULE)
         if (schedule) {
             this.achievedDayRule = PERFECT_SCHEDULE_DAY_RULE
+            this._balanceLessonCounts(schedule, PERFECT_SCHEDULE_DAY_RULE)
             return schedule
         }
 
@@ -337,6 +436,7 @@ class ScheduleBuilder {
         schedule = this._constructSchedule(days, HIGH_QUALITY_DAY_RULE)
         if (schedule) {
             this.achievedDayRule = HIGH_QUALITY_DAY_RULE
+            this._balanceLessonCounts(schedule, HIGH_QUALITY_DAY_RULE)
             return schedule
         }
 

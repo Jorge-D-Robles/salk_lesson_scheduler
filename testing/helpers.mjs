@@ -106,21 +106,56 @@ export function runChecks(schedule, builder, { maxCycleViolations = 60 } = {}) {
         issues.push(`BALANCE:${Math.max(...vals) - Math.min(...vals)}`);
 
     // Cycle fairness (relaxed — bounded violations allowed)
-    const seq = schedule.flatMap(d => d.lessons).filter(l => l.group !== 'MU').map(l => l.group);
-    const allGroups = builder.LESSON_GROUPS;
-    if (seq.length > allGroups.length) {
-        const gi = new Map();
-        allGroups.forEach(g => gi.set(g, []));
-        seq.forEach((g, i) => { if (gi.has(g)) gi.get(g).push(i); });
-        let violations = 0;
-        for (const [group, indices] of gi.entries()) {
-            for (let i = 0; i < indices.length - 1; i++) {
-                const between = new Set(seq.slice(indices[i] + 1, indices[i + 1]));
-                if (allGroups.filter(g => g !== group && !between.has(g)).length > 0) violations++;
-            }
-        }
-        if (violations > maxCycleViolations) issues.push(`CYCLE:${violations}>${maxCycleViolations}`);
+    const cycleInfo = analyzeCycleViolations(schedule, builder);
+    if (cycleInfo.violations > maxCycleViolations) {
+        issues.push(`CYCLE:${cycleInfo.violations}>${maxCycleViolations}`);
     }
 
     return issues;
+}
+
+/**
+ * Analyze cycle violations in detail. Returns an object with:
+ * - violations: total count
+ * - details: array of { group, gap, missingCount, missing }
+ * - summary: human-readable summary string
+ */
+export function analyzeCycleViolations(schedule, builder) {
+    const seq = schedule.flatMap(d => d.lessons).filter(l => l.group !== 'MU').map(l => l.group);
+    const allGroups = builder.LESSON_GROUPS;
+    const result = { violations: 0, details: [], summary: '' };
+
+    if (seq.length <= allGroups.length) return result;
+
+    const gi = new Map();
+    allGroups.forEach(g => gi.set(g, []));
+    seq.forEach((g, i) => { if (gi.has(g)) gi.get(g).push(i); });
+
+    for (const [group, indices] of gi.entries()) {
+        for (let i = 0; i < indices.length - 1; i++) {
+            const between = new Set(seq.slice(indices[i] + 1, indices[i + 1]));
+            const missing = allGroups.filter(g => g !== group && !between.has(g));
+            if (missing.length > 0) {
+                result.violations++;
+                result.details.push({
+                    group,
+                    gap: indices[i + 1] - indices[i] - 1,
+                    missingCount: missing.length,
+                    missing,
+                });
+            }
+        }
+    }
+
+    if (result.violations > 0) {
+        const offBy1 = result.details.filter(d => d.missingCount === 1).length;
+        const offBy2plus = result.violations - offBy1;
+        const totalGaps = allGroups.length * (Math.floor(seq.length / allGroups.length) - 1);
+        const pct = totalGaps > 0 ? ((result.violations / totalGaps) * 100).toFixed(1) : '?';
+        result.summary = `${result.violations} violations (${offBy1} off-by-1, ${offBy2plus} off-by-2+) out of ~${totalGaps} gaps (${pct}%)`;
+    } else {
+        result.summary = 'perfect cycle ordering';
+    }
+
+    return result;
 }

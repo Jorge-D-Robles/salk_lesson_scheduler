@@ -145,14 +145,14 @@ describe("ScheduleBuilder - Torture Tests", () => {
     }
 
     // Run all standard constraint checks on a schedule
-    const runAllChecks = (schedule, builder, dayRule = 21) => {
+    const runAllChecks = (schedule, builder, dayRule = 21, maxCycleViolations = 60) => {
         assertScheduleNotEmpty(schedule, "torture test")
         assertAllSlotsFilled(schedule)
         assertNoDayRuleConflicts(schedule, dayRule)
         assertNoWeeklyConflicts(schedule)
         assertNoMUClustering(schedule)
         assertBalancedUsage(schedule)
-        assertCycleFairnessRelaxed(schedule, builder.LESSON_GROUPS)
+        assertCycleFairnessRelaxed(schedule, builder.LESSON_GROUPS, maxCycleViolations)
     }
 
     describe("Heavy scattered days off", () => {
@@ -378,6 +378,327 @@ describe("ScheduleBuilder - Torture Tests", () => {
             const builder = new ScheduleBuilder("2025-09-01", 1, daysOff, 16)
             const schedule = builder.buildSchedule()
             runAllChecks(schedule, builder)
+        })
+    })
+
+    describe("Real school calendar: Levittown 2025-2026", () => {
+        // Actual calendar from Levittown Public Schools approved 2/5/25
+        // School year: Sep 2, 2025 – Jun 26, 2026 (Salk Middle School)
+        const levittownDaysOff = [
+            // Rosh Hashanah
+            "2025-09-23", "2025-09-24",
+            // Yom Kippur
+            "2025-10-02",
+            // Columbus Day
+            "2025-10-13",
+            // Diwali
+            "2025-10-20",
+            // Election Day / Supt Conf Day
+            "2025-11-04",
+            // Veteran's Day (Observed)
+            "2025-11-11",
+            // Thanksgiving Break
+            "2025-11-27", "2025-11-28",
+            // Winter Recess (Dec 24 - Jan 2)
+            "2025-12-24", "2025-12-25", "2025-12-26",
+            "2025-12-29", "2025-12-30", "2025-12-31",
+            "2026-01-01", "2026-01-02",
+            // Martin Luther King Jr Day
+            "2026-01-19",
+            // February Recess (Feb 16-20)
+            "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20",
+            // Eid al Fitr / Supt Conf Day
+            "2026-03-20",
+            // Spring Recess (Apr 2-10)
+            "2026-04-02", "2026-04-03",
+            "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10",
+            // Memorial Day Recess
+            "2026-05-25",
+            // Eid al Adha
+            "2026-05-27",
+            // Juneteenth
+            "2026-06-19",
+        ]
+
+        ;[1, 2].forEach((startCycle) => {
+            it(`should handle full Levittown 2025-2026 school year starting cycle ${startCycle}`, () => {
+                const builder = new ScheduleBuilder(
+                    "2025-09-02", startCycle, levittownDaysOff, 43
+                )
+                const schedule = builder.buildSchedule()
+                runAllChecks(schedule, builder)
+            })
+        })
+
+        // --- Realistic scenario tests layered on top of the real calendar ---
+        // Each test adds personal absences (sick days, snow days, etc.) to the
+        // actual Levittown calendar to simulate a real teacher's year.
+
+        const realisticScenarios = [
+            // --- Scattered sick days ---
+            {
+                desc: "10 random scattered sick days across the year",
+                extra: [
+                    "2025-09-15", "2025-10-08", "2025-10-29",
+                    "2025-11-19", "2025-12-10", "2026-01-14",
+                    "2026-02-25", "2026-03-11", "2026-04-22",
+                    "2026-05-13",
+                ],
+            },
+            {
+                desc: "10 sick days clustered in fall",
+                extra: [
+                    "2025-09-08", "2025-09-12", "2025-09-17",
+                    "2025-10-06", "2025-10-09", "2025-10-15",
+                    "2025-10-22", "2025-10-28", "2025-11-05",
+                    "2025-11-13",
+                ],
+            },
+            {
+                desc: "10 sick days clustered in winter (Jan-Mar)",
+                extra: [
+                    "2026-01-07", "2026-01-12", "2026-01-21",
+                    "2026-01-28", "2026-02-09", "2026-02-23",
+                    "2026-03-02", "2026-03-09", "2026-03-16",
+                    "2026-03-25",
+                ],
+            },
+            {
+                desc: "10 sick days all on Mondays",
+                extra: [
+                    "2025-09-08", "2025-09-29", "2025-10-27",
+                    "2025-11-17", "2025-12-08", "2026-01-12",
+                    "2026-02-09", "2026-03-09", "2026-04-27",
+                    "2026-05-18",
+                ],
+            },
+            {
+                desc: "10 sick days all on Fridays",
+                extra: [
+                    "2025-09-12", "2025-10-03", "2025-10-24",
+                    "2025-11-14", "2025-12-05", "2026-01-09",
+                    "2026-02-13", "2026-03-13", "2026-04-24",
+                    "2026-05-15",
+                ],
+            },
+
+            // --- Full week of sick leave ---
+            {
+                desc: "full week of sick leave in early October",
+                extra: ["2025-10-06", "2025-10-07", "2025-10-08", "2025-10-09", "2025-10-10"],
+            },
+            {
+                desc: "full week of sick leave in January after winter break",
+                extra: ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09"],
+            },
+            {
+                desc: "full week of sick leave right before spring break (extends to 2+ weeks off)",
+                extra: ["2026-03-30", "2026-03-31", "2026-04-01"],
+            },
+            {
+                desc: "full week of sick leave in May near end of year",
+                extra: ["2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08"],
+            },
+
+            // --- Extended illness ---
+            {
+                desc: "2-week illness in November (overlaps Thanksgiving)",
+                extra: [
+                    "2025-11-17", "2025-11-18", "2025-11-19", "2025-11-20", "2025-11-21",
+                    "2025-11-24", "2025-11-25", "2025-11-26",
+                ],
+            },
+            {
+                desc: "2-week illness in March",
+                extra: [
+                    "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06",
+                    "2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13",
+                ],
+            },
+
+            // --- Snow days ---
+            {
+                desc: "1 snow day in February",
+                extra: ["2026-02-11"],
+            },
+            {
+                desc: "2 snow days in January",
+                extra: ["2026-01-07", "2026-01-08"],
+            },
+            {
+                desc: "3 snow days in a single week in March",
+                extra: ["2026-03-03", "2026-03-04", "2026-03-05"],
+            },
+            {
+                desc: "snow day extending winter break (day before recess)",
+                extra: ["2025-12-23"],
+            },
+            {
+                desc: "snow day extending February recess (day after recess)",
+                extra: ["2026-02-23"],
+            },
+
+            // --- Snow days + sick days combo ---
+            {
+                desc: "3 snow days + 7 sick days spread across winter",
+                extra: [
+                    // Snow
+                    "2026-01-08", "2026-02-11", "2026-03-04",
+                    // Sick
+                    "2025-12-03", "2025-12-15", "2026-01-14",
+                    "2026-01-28", "2026-02-25", "2026-03-16",
+                    "2026-03-25",
+                ],
+            },
+            {
+                desc: "worst case winter: 3 snow days + week of flu in January",
+                extra: [
+                    // Snow
+                    "2026-01-06", "2026-02-10", "2026-03-03",
+                    // Flu week
+                    "2026-01-12", "2026-01-13", "2026-01-14", "2026-01-15", "2026-01-16",
+                ],
+            },
+
+            // --- Recurring personal day patterns ---
+            {
+                desc: "every Tuesday off in October (recurring appointment)",
+                extra: ["2025-10-07", "2025-10-14", "2025-10-21", "2025-10-28"],
+            },
+            {
+                desc: "every Wednesday off in March (recurring appointment)",
+                extra: ["2026-03-04", "2026-03-11", "2026-03-18", "2026-03-25"],
+            },
+            {
+                desc: "every Monday off for 6 weeks in spring",
+                extra: [
+                    "2026-04-13", "2026-04-20", "2026-04-27",
+                    "2026-05-04", "2026-05-11", "2026-05-18",
+                ],
+            },
+            {
+                desc: "every other Friday off from October through December",
+                extra: [
+                    "2025-10-03", "2025-10-17", "2025-10-31",
+                    "2025-11-14", "2025-12-05", "2025-12-19",
+                ],
+            },
+
+            // --- Holiday-adjacent sick days (long weekends) ---
+            {
+                desc: "sick days extending every long weekend",
+                extra: [
+                    "2025-09-22",  // Mon before Rosh Hashanah (Tue-Wed)
+                    "2025-10-01",  // Wed before Yom Kippur (Thu)
+                    "2025-11-26",  // Wed before Thanksgiving
+                    "2026-01-20",  // Tue after MLK Monday
+                    "2026-05-26",  // Tue after Memorial Day
+                ],
+            },
+            {
+                desc: "sick on first and last day of school + random days",
+                extra: [
+                    "2025-09-02",  // First day
+                    "2026-06-26",  // Last day
+                    "2025-11-19", "2026-02-25", "2026-04-22",
+                ],
+            },
+
+            // --- Jury duty ---
+            {
+                desc: "jury duty: 5 consecutive days in March",
+                extra: ["2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13"],
+            },
+            {
+                desc: "jury duty: 5 days spread across 2 weeks in April",
+                extra: ["2026-04-13", "2026-04-15", "2026-04-17", "2026-04-20", "2026-04-22"],
+            },
+
+            // --- Worst-case combinations ---
+            {
+                desc: "maximum absences: 10 sick + 3 snow + jury duty week",
+                extra: [
+                    // Sick
+                    "2025-09-15", "2025-10-08", "2025-11-19",
+                    "2025-12-10", "2026-01-14", "2026-02-25",
+                    "2026-03-25", "2026-04-22", "2026-05-13", "2026-06-10",
+                    // Snow
+                    "2026-01-07", "2026-02-11", "2026-03-04",
+                    // Jury duty
+                    "2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16", "2026-04-17",
+                ],
+            },
+            {
+                desc: "terrible fall: sick week + every Monday off Oct-Nov",
+                extra: [
+                    // Sick week
+                    "2025-09-15", "2025-09-16", "2025-09-17", "2025-09-18", "2025-09-19",
+                    // Every Monday Oct-Nov
+                    "2025-10-06", "2025-10-27",
+                    "2025-11-03", "2025-11-10", "2025-11-17", "2025-11-24",
+                ],
+            },
+            {
+                desc: "terrible spring: 2-week illness + snow days + sick days",
+                extra: [
+                    // 2-week illness
+                    "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06",
+                    "2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13",
+                    // Snow days
+                    "2026-01-08", "2026-02-11",
+                    // Additional sick
+                    "2026-04-22", "2026-05-06",
+                ],
+            },
+            {
+                desc: "only 3 school days some weeks: random absences near holidays",
+                extra: [
+                    "2025-09-22", "2025-09-25",  // Week of Rosh Hashanah (23-24 off)
+                    "2025-10-01", "2025-10-03",  // Week of Yom Kippur (2 off)
+                    "2025-11-24", "2025-11-26",  // Thanksgiving week
+                    "2026-01-20", "2026-01-23",  // Week after MLK
+                ],
+            },
+
+            // --- Additional permutations for statistical coverage ---
+            { desc: "clean (no extra absences)", extra: [] },
+            { desc: "3 sick scattered across year", extra: ["2025-10-15", "2026-01-22", "2026-04-28"] },
+            { desc: "5 sick days early in year", extra: ["2025-09-08", "2025-09-18", "2025-10-06", "2025-10-16", "2025-10-23"] },
+            { desc: "5 sick days late in year", extra: ["2026-04-20", "2026-04-28", "2026-05-06", "2026-05-14", "2026-06-03"] },
+            { desc: "8 random absences pattern A", extra: ["2025-09-10", "2025-10-14", "2025-11-06", "2025-12-09", "2026-01-22", "2026-03-05", "2026-04-23", "2026-05-20"] },
+            { desc: "8 random absences pattern B", extra: ["2025-09-25", "2025-10-21", "2025-11-13", "2025-12-16", "2026-02-04", "2026-03-17", "2026-04-29", "2026-06-04"] },
+            { desc: "12 random absences pattern A", extra: ["2025-09-05", "2025-09-19", "2025-10-10", "2025-10-28", "2025-11-18", "2025-12-04", "2026-01-13", "2026-02-05", "2026-03-04", "2026-04-15", "2026-05-07", "2026-06-02"] },
+            { desc: "12 random absences pattern B", extra: ["2025-09-11", "2025-09-30", "2025-10-17", "2025-11-07", "2025-12-02", "2025-12-18", "2026-01-27", "2026-02-12", "2026-03-19", "2026-04-21", "2026-05-19", "2026-06-11"] },
+            { desc: "15 heavy absences across year", extra: ["2025-09-04", "2025-09-16", "2025-10-03", "2025-10-22", "2025-11-05", "2025-11-20", "2025-12-05", "2025-12-17", "2026-01-09", "2026-01-27", "2026-02-12", "2026-03-09", "2026-04-17", "2026-05-08", "2026-06-05"] },
+            { desc: "sick week in September", extra: ["2025-09-08", "2025-09-09", "2025-09-10", "2025-09-11", "2025-09-12"] },
+            { desc: "sick week in November", extra: ["2025-11-03", "2025-11-05", "2025-11-06", "2025-11-07"] },
+            { desc: "sick week in December", extra: ["2025-12-15", "2025-12-16", "2025-12-17", "2025-12-18", "2025-12-19"] },
+            { desc: "sick week in January", extra: ["2026-01-12", "2026-01-13", "2026-01-14", "2026-01-15", "2026-01-16"] },
+            { desc: "sick week in April", extra: ["2026-04-20", "2026-04-21", "2026-04-22", "2026-04-23", "2026-04-24"] },
+            { desc: "sick week in June", extra: ["2026-06-08", "2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12"] },
+            { desc: "2 days off at start of September", extra: ["2025-09-03", "2025-09-04"] },
+            { desc: "2 days off mid October", extra: ["2025-10-15", "2025-10-16"] },
+            { desc: "2 days off mid January", extra: ["2026-01-14", "2026-01-15"] },
+            { desc: "2 days off end of May", extra: ["2026-05-28", "2026-05-29"] },
+            { desc: "4 days off in February", extra: ["2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12"] },
+            { desc: "every Thursday off in November", extra: ["2025-11-06", "2025-11-13", "2025-11-20"] },
+            { desc: "every Wednesday off in January", extra: ["2026-01-07", "2026-01-14", "2026-01-21", "2026-01-28"] },
+            { desc: "2 snow + 5 sick pattern A", extra: ["2026-01-15", "2026-02-26", "2025-10-09", "2025-11-19", "2025-12-11", "2026-03-17", "2026-05-12"] },
+            { desc: "2 snow + 5 sick pattern B", extra: ["2026-02-04", "2026-03-06", "2025-09-18", "2025-10-23", "2025-12-04", "2026-04-22", "2026-05-21"] },
+            { desc: "3 snow + 3 sick combo", extra: ["2026-01-08", "2026-02-11", "2026-03-04", "2025-10-29", "2025-12-10", "2026-05-13"] },
+        ]
+
+        realisticScenarios.forEach((scenario) => {
+            ;[1, 2].forEach((startCycle) => {
+                it(`should handle Levittown calendar + ${scenario.desc}, cycle ${startCycle}`, () => {
+                    const allDaysOff = [...levittownDaysOff, ...scenario.extra]
+                    const builder = new ScheduleBuilder(
+                        "2025-09-02", startCycle, allDaysOff, 43
+                    )
+                    const schedule = builder.buildSchedule()
+                    runAllChecks(schedule, builder, 21, 70)
+                })
+            })
         })
     })
 
