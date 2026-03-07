@@ -50,6 +50,7 @@ let activePopover = null
 let dragState = null
 let activeSwapWarning = null
 let lastHoveredCell = null
+let activeSwapToast = null
 
 // --- Function Definitions ---
 
@@ -60,6 +61,10 @@ let lastHoveredCell = null
  */
 function showToast(message, type = 'success', action = null) {
     if (!ui.toastContainer) return
+    if (action && activeSwapToast) {
+        activeSwapToast.remove()
+        activeSwapToast = null
+    }
     const toast = document.createElement('div')
     toast.className = `toast toast-${type}`
     toast.style.display = 'flex'
@@ -71,17 +76,19 @@ function showToast(message, type = 'success', action = null) {
         const btn = document.createElement('button')
         btn.className = 'toast-action-btn'
         btn.textContent = action.label
-        btn.addEventListener('click', () => { toast.remove(); action.callback() })
+        btn.addEventListener('click', () => { activeSwapToast = null; toast.remove(); action.callback() })
         toast.appendChild(btn)
         const closeBtn = document.createElement('button')
         closeBtn.className = 'toast-close-btn'
         closeBtn.innerHTML = '&times;'
         closeBtn.addEventListener('click', () => {
+            activeSwapToast = null
             toast.style.opacity = '0'
             toast.style.transition = 'opacity 0.3s'
             setTimeout(() => toast.remove(), 300)
         })
         toast.appendChild(closeBtn)
+        activeSwapToast = toast
     } else {
         setTimeout(() => {
             toast.style.opacity = '0'
@@ -164,18 +171,27 @@ function updateSaveButtonUnsaved(unsaved) {
 
 // --- Drag-and-drop period swapping ---
 
-function find28DayViolations(dayIndex, group, period) {
+function getWeekIdentifier(d) {
+    const newD = new Date(d)
+    newD.setHours(0, 0, 0, 0)
+    const day = newD.getDay()
+    const diff = newD.getDate() - day + (day === 0 ? -6 : 1)
+    return new Date(newD.setDate(diff)).toDateString()
+}
+
+function find28DayViolations(dayIndex, group, period, excludeDayIndices) {
     if (!currentSchedule || group.startsWith('MU')) return []
     const violations = []
     const targetDate = currentSchedule[dayIndex].date
     for (let i = 0; i < currentSchedule.length; i++) {
         if (i === dayIndex) continue
+        if (excludeDayIndices && excludeDayIndices.has(i)) continue
         for (const lesson of currentSchedule[i].lessons) {
             if (lesson.group === group && lesson.period === period) {
                 const daysBetween = Math.round(Math.abs(targetDate - currentSchedule[i].date) / 86400000)
                 if (daysBetween < 28) {
                     const conflictDate = currentSchedule[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-                    violations.push({ group, period, conflictDate, daysBetween })
+                    violations.push({ type: '28day', group, period, conflictDate, daysBetween })
                 }
             }
         }
@@ -183,22 +199,69 @@ function find28DayViolations(dayIndex, group, period) {
     return violations
 }
 
-function checkSwapViolations(dayIndex, lessonIndexA, lessonIndexB) {
+function findWeeklyViolations(sourceDayIndex, targetDayIndex, groupA, groupB) {
+    if (!currentSchedule || sourceDayIndex === targetDayIndex) return []
+    const violations = []
+    const pairs = [
+        { group: groupA, destIndex: targetDayIndex, fromIndex: sourceDayIndex },
+        { group: groupB, destIndex: sourceDayIndex, fromIndex: targetDayIndex },
+    ]
+    for (const { group, destIndex, fromIndex } of pairs) {
+        if (group.startsWith('MU')) continue
+        const destWeek = getWeekIdentifier(currentSchedule[destIndex].date)
+        for (let i = 0; i < currentSchedule.length; i++) {
+            if (i === destIndex || i === fromIndex) continue
+            if (getWeekIdentifier(currentSchedule[i].date) !== destWeek) continue
+            for (const lesson of currentSchedule[i].lessons) {
+                if (lesson.group === group) {
+                    const conflictDate = currentSchedule[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                    violations.push({ type: 'weekly', group, conflictDate })
+                    break
+                }
+            }
+        }
+    }
+    return violations
+}
+
+function findMUViolations(dayIndex, lessonIndex, newGroup) {
+    if (!newGroup.startsWith('MU')) return []
     const entry = currentSchedule[dayIndex]
-    const lessonA = entry.lessons[lessonIndexA]
-    const lessonB = entry.lessons[lessonIndexB]
-    // After swap: groupA goes to periodB, groupB goes to periodA
+    let muCount = 0
+    for (let i = 0; i < entry.lessons.length; i++) {
+        if (i === lessonIndex) continue
+        if (entry.lessons[i].group.startsWith('MU')) muCount++
+    }
+    if (muCount >= 1) {
+        const conflictDate = entry.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+        return [{ type: 'mu', group: newGroup, conflictDate }]
+    }
+    return []
+}
+
+function checkSwapViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, targetLessonIndex) {
+    const sourceEntry = currentSchedule[sourceDayIndex]
+    const targetEntry = currentSchedule[targetDayIndex]
+    const lessonA = sourceEntry.lessons[sourceLessonIndex]
+    const lessonB = targetEntry.lessons[targetLessonIndex]
+    const isCrossDay = sourceDayIndex !== targetDayIndex
+    const excludeSet = isCrossDay ? new Set([sourceDayIndex, targetDayIndex]) : undefined
+    // After swap: groupA goes to target period, groupB goes to source period
     const violations = [
-        ...find28DayViolations(dayIndex, lessonA.group, lessonB.period),
-        ...find28DayViolations(dayIndex, lessonB.group, lessonA.period),
+        ...find28DayViolations(targetDayIndex, lessonA.group, lessonB.period, excludeSet),
+        ...find28DayViolations(sourceDayIndex, lessonB.group, lessonA.period, excludeSet),
+        ...findWeeklyViolations(sourceDayIndex, targetDayIndex, lessonA.group, lessonB.group),
+        ...findMUViolations(targetDayIndex, targetLessonIndex, lessonA.group),
+        ...findMUViolations(sourceDayIndex, sourceLessonIndex, lessonB.group),
     ]
     return violations
 }
 
-function executeGroupSwap(dayIndex, lessonIndexA, lessonIndexB) {
-    const entry = currentSchedule[dayIndex]
-    const lessonA = entry.lessons[lessonIndexA]
-    const lessonB = entry.lessons[lessonIndexB]
+function executeGroupSwap(sourceDayIndex, sourceLessonIndex, targetDayIndex, targetLessonIndex) {
+    const sourceEntry = currentSchedule[sourceDayIndex]
+    const targetEntry = currentSchedule[targetDayIndex]
+    const lessonA = sourceEntry.lessons[sourceLessonIndex]
+    const lessonB = targetEntry.lessons[targetLessonIndex]
     const groupA = lessonA.group
     const groupB = lessonB.group
     // Swap groups — periods stay fixed
@@ -208,6 +271,7 @@ function executeGroupSwap(dayIndex, lessonIndexA, lessonIndexB) {
     ui.scheduleOutput.classList.remove('hidden')
     scheduleModified = true
     updateSaveButtonUnsaved(true)
+    const rebuildDayIndex = Math.min(sourceDayIndex, targetDayIndex)
     showToast(`Swapped ${groupA} \u2194 ${groupB}`, 'info', {
         label: 'Rebuild from here',
         callback: () => {
@@ -215,7 +279,7 @@ function executeGroupSwap(dayIndex, lessonIndexA, lessonIndexB) {
                 showToast('Cannot rebuild: original parameters not available.', 'error')
                 return
             }
-            const result = recalculateAfterDay(currentSchedule, dayIndex, currentScheduleParams)
+            const result = recalculateAfterDay(currentSchedule, rebuildDayIndex, currentScheduleParams)
             currentSchedule = result.schedule
             displaySchedule(currentSchedule)
             showToast('Schedule rebuilt from swapped day.', 'info')
@@ -232,9 +296,12 @@ function showSwapWarningTooltip(cell, violations) {
     closeBtn.innerHTML = '&times;'
     closeBtn.addEventListener('click', () => dismissSwapWarning())
     tooltip.appendChild(closeBtn)
-    let html = violations.map(v =>
-        `<div class="warn-line">${v.group} in ${v.period}: only ${v.daysBetween} days from ${v.conflictDate}</div>`
-    ).join('')
+    let html = violations.map(v => {
+        if (v.type === '28day') return `<div class="warn-line">${v.group} in ${v.period}: only ${v.daysBetween} days from ${v.conflictDate}</div>`
+        if (v.type === 'weekly') return `<div class="warn-line">${v.group} already scheduled this week (${v.conflictDate})</div>`
+        if (v.type === 'mu') return `<div class="warn-line">Would create 2+ MU slots on ${v.conflictDate}</div>`
+        return ''
+    }).join('')
     html += '<div class="warn-hint">Drop to swap anyway</div>'
     tooltip.insertAdjacentHTML('beforeend', html)
     const rect = cell.getBoundingClientRect()
@@ -260,13 +327,13 @@ function dismissSwapWarning() {
     }
 }
 
-function highlightDragRow(activeDayIndex) {
+function highlightDragRow(activeDayCycle) {
     const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer)')
     rows.forEach(row => {
         const btn = row.querySelector('.day-delete-btn')
         if (!btn) return
         const idx = parseInt(btn.dataset.dayIndex, 10)
-        if (idx === activeDayIndex) {
+        if (currentSchedule[idx].dayCycle === activeDayCycle) {
             row.classList.add('drag-row-active')
         } else {
             row.classList.add('drag-row-inactive')
@@ -485,6 +552,7 @@ function runScheduler() {
                 scheduleHistory
             )
             const schedule = scheduleBuilder.buildSchedule()
+            schedule.achievedDayRule = scheduleBuilder.achievedDayRule
             displaySchedule(schedule)
             currentSchedule = schedule
             storeScheduleParams(startDate, weeks, daysOff)
@@ -900,6 +968,37 @@ function getScheduleParameters() {
  * Renders the generated schedule into the HTML table, including visual spacers.
  * @param {Array<ScheduleEntry>} schedule - The schedule array from ScheduleBuilder.
  */
+function computeCellIssues(schedule) {
+    const issues = new Map()
+    for (let dayIndex = 0; dayIndex < schedule.length; dayIndex++) {
+        const entry = schedule[dayIndex]
+        for (let lessonIndex = 0; lessonIndex < entry.lessons.length; lessonIndex++) {
+            const lesson = entry.lessons[lessonIndex]
+            if (lesson.group.startsWith('MU')) continue
+            const cellIssues = []
+            for (let j = 0; j < schedule.length; j++) {
+                if (j === dayIndex) continue
+                for (const other of schedule[j].lessons) {
+                    if (other.group === lesson.group && other.period === lesson.period) {
+                        const daysBetween = Math.round(Math.abs(entry.date - schedule[j].date) / 86400000)
+                        if (daysBetween < 28) {
+                            const conflictDate = schedule[j].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                            cellIssues.push(`Only ${daysBetween}d separation from ${conflictDate} (ideal: 28d)`)
+                        }
+                    }
+                }
+            }
+            if (schedule.achievedDayRule === 21) {
+                cellIssues.push('Schedule used 21-day spacing (28-day was impossible due to calendar gaps)')
+            }
+            if (cellIssues.length > 0) {
+                issues.set(`${dayIndex}-${lessonIndex}`, cellIssues)
+            }
+        }
+    }
+    return issues
+}
+
 function displaySchedule(schedule) {
     ui.scheduleTableBody.innerHTML = ""
 
@@ -908,13 +1007,7 @@ function displaySchedule(schedule) {
         return
     }
 
-    const getWeekIdentifier = (d) => {
-        const newD = new Date(d)
-        newD.setHours(0, 0, 0, 0)
-        const day = newD.getDay()
-        const diff = newD.getDate() - day + (day === 0 ? -6 : 1)
-        return new Date(newD.setDate(diff)).toDateString()
-    }
+    const cellIssues = computeCellIssues(schedule)
 
     let currentWeekIdentifier = getWeekIdentifier(schedule[0].date)
     let fourWeekBoundary = new Date(schedule[0].date.getTime())
@@ -944,7 +1037,11 @@ function displaySchedule(schedule) {
                 const groupClass = entry.lessons[i].group.startsWith("MU")
                     ? "text-red-600"
                     : "text-gray-800"
-                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td><td draggable="true" class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}">${entry.lessons[i].group}</td>`
+                const issues = cellIssues.get(`${index}-${i}`)
+                const indicator = issues
+                    ? `<span class="cell-issue-indicator" title="${issues.join('\n').replace(/"/g, '&quot;')}">&#9888;</span>`
+                    : ''
+                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td><td draggable="true" class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}">${entry.lessons[i].group}${indicator}</td>`
             } else {
                 rowHTML +=
                     '<td class="px-2 py-3"></td><td class="px-2 py-3"></td>'
@@ -1068,14 +1165,16 @@ function initialize() {
     ui.scheduleTableBody.addEventListener('dragstart', (e) => {
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell) return
+        const parsedDayIndex = parseInt(cell.dataset.dayIndex, 10)
         dragState = {
-            dayIndex: parseInt(cell.dataset.dayIndex, 10),
+            dayIndex: parsedDayIndex,
             lessonIndex: parseInt(cell.dataset.lessonIndex, 10),
             group: cell.dataset.group,
             sourceCell: cell,
+            dayCycle: currentSchedule[parsedDayIndex].dayCycle,
         }
         cell.classList.add('dragging')
-        highlightDragRow(dragState.dayIndex)
+        highlightDragRow(dragState.dayCycle)
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('text/plain', '')
     })
@@ -1085,7 +1184,7 @@ function initialize() {
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell || cell === dragState.sourceCell) return
         const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
-        if (targetDayIndex !== dragState.dayIndex) return
+        if (currentSchedule[targetDayIndex].dayCycle !== dragState.dayCycle) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
         if (cell === lastHoveredCell) return
@@ -1095,7 +1194,7 @@ function initialize() {
         }
         lastHoveredCell = cell
         const targetLessonIndex = parseInt(cell.dataset.lessonIndex, 10)
-        const violations = checkSwapViolations(dragState.dayIndex, dragState.lessonIndex, targetLessonIndex)
+        const violations = checkSwapViolations(dragState.dayIndex, dragState.lessonIndex, targetDayIndex, targetLessonIndex)
         if (violations.length > 0) {
             cell.classList.add('drag-over-warning')
             showSwapWarningTooltip(cell, violations)
@@ -1108,9 +1207,9 @@ function initialize() {
     ui.scheduleTableBody.addEventListener('dragenter', (e) => {
         if (!dragState) return
         const cell = e.target.closest('.lesson-group-cell')
-        if (!cell) return
+        if (!cell || cell === dragState.sourceCell) return
         const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
-        if (targetDayIndex === dragState.dayIndex && cell !== dragState.sourceCell) {
+        if (currentSchedule[targetDayIndex].dayCycle === dragState.dayCycle) {
             e.preventDefault()
         }
     })
@@ -1135,9 +1234,9 @@ function initialize() {
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell || cell === dragState.sourceCell) return
         const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
-        if (targetDayIndex !== dragState.dayIndex) return
+        if (currentSchedule[targetDayIndex].dayCycle !== dragState.dayCycle) return
         const targetLessonIndex = parseInt(cell.dataset.lessonIndex, 10)
-        executeGroupSwap(dragState.dayIndex, dragState.lessonIndex, targetLessonIndex)
+        executeGroupSwap(dragState.dayIndex, dragState.lessonIndex, targetDayIndex, targetLessonIndex)
         // Cleanup happens in dragend
     })
 
