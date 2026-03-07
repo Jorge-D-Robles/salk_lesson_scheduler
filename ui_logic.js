@@ -175,8 +175,10 @@ async function handleAccessToken(token) {
         }
     } catch (e) {
         if (e.message === 'TOKEN_EXPIRED') {
-            showToast('Session expired. Please sign in again.', 'error')
-            handleSignOut()
+            // Token from sessionStorage was stale — clear it silently.
+            // User can click a Drive button to re-authenticate.
+            sessionStorage.removeItem('salk_token')
+            console.warn('Stored token expired, cleared.')
         } else {
             console.warn('Could not auto-load from Drive:', e)
         }

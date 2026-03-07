@@ -2,10 +2,12 @@
  * @file AuthManager — handles Google Identity Services OAuth2 flows.
  * Uses google.accounts.id (ID token) for session persistence via auto_select,
  * and google.accounts.oauth2 (access token) for Drive API access.
+ * Access token is cached in sessionStorage to survive page refreshes.
  * No DOM access. Reads CONFIG.GOOGLE_CLIENT_ID from config.js.
  */
 const AuthManager = (() => {
     const PROFILE_KEY = 'salk_profile';
+    const TOKEN_KEY = 'salk_token';
     let tokenClient = null;
     let accessToken = null;
     let onIdentifiedCallback = null;
@@ -23,12 +25,22 @@ const AuthManager = (() => {
             return;
         }
 
+        // Restore token from sessionStorage (survives page refresh within same tab)
+        const storedToken = sessionStorage.getItem(TOKEN_KEY);
+        if (storedToken) {
+            accessToken = storedToken;
+            const profile = getStoredProfile();
+            if (profile && onIdentifiedCallback) onIdentifiedCallback(profile);
+            // Verify the token is still valid by triggering auto-load
+            if (onAccessTokenCallback) onAccessTokenCallback(accessToken);
+        }
+
         const waitForGIS = setInterval(() => {
             if (typeof google !== 'undefined' && google.accounts &&
                 google.accounts.oauth2 && google.accounts.id) {
                 clearInterval(waitForGIS);
 
-                // Token client for Drive API access (requested on user gesture)
+                // Token client for Drive API access
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CONFIG.GOOGLE_CLIENT_ID,
                     scope: 'https://www.googleapis.com/auth/drive.appdata',
@@ -38,6 +50,7 @@ const AuthManager = (() => {
                             return;
                         }
                         accessToken = response.access_token;
+                        sessionStorage.setItem(TOKEN_KEY, accessToken);
                         if (onAccessTokenCallback) onAccessTokenCallback(accessToken);
                     },
                     error_callback: (err) => {
@@ -45,13 +58,16 @@ const AuthManager = (() => {
                     },
                 });
 
-                // ID client for session persistence (auto_select for returning users)
-                google.accounts.id.initialize({
-                    client_id: CONFIG.GOOGLE_CLIENT_ID,
-                    callback: handleCredential,
-                    auto_select: true,
-                });
-                google.accounts.id.prompt();
+                // ID client for session persistence — only needed if we don't
+                // already have a token (i.e. new tab or session expired)
+                if (!accessToken) {
+                    google.accounts.id.initialize({
+                        client_id: CONFIG.GOOGLE_CLIENT_ID,
+                        callback: handleCredential,
+                        auto_select: true,
+                    });
+                    google.accounts.id.prompt();
+                }
             }
         }, 100);
 
@@ -69,6 +85,8 @@ const AuthManager = (() => {
         }
         localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
         if (onIdentifiedCallback) onIdentifiedCallback(profile);
+        // Don't request access token here — it requires a user gesture.
+        // User will click "Sign in with Google" or a Drive button to get one.
     }
 
     function signIn() {
@@ -84,6 +102,7 @@ const AuthManager = (() => {
             google.accounts.oauth2.revoke(accessToken, () => {});
         }
         accessToken = null;
+        sessionStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(PROFILE_KEY);
         if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
             google.accounts.id.disableAutoSelect();
@@ -116,6 +135,7 @@ const AuthManager = (() => {
                 tokenClient.callback = origCallback;
                 if (response.error) return reject(new Error(response.error));
                 accessToken = response.access_token;
+                sessionStorage.setItem(TOKEN_KEY, accessToken);
                 resolve(accessToken);
             };
             tokenClient.requestAccessToken({ prompt: '' });
@@ -124,6 +144,7 @@ const AuthManager = (() => {
 
     function refreshToken() {
         accessToken = null;
+        sessionStorage.removeItem(TOKEN_KEY);
         return ensureAccessToken();
     }
 
