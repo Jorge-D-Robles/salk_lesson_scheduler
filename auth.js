@@ -1,15 +1,20 @@
 /**
- * @file AuthManager — handles Google Identity Services OAuth2 token flow.
+ * @file AuthManager — handles Google Identity Services OAuth2 flows.
+ * Uses google.accounts.id (ID token) for session persistence via auto_select,
+ * and google.accounts.oauth2 (access token) for Drive API access.
  * No DOM access. Reads CONFIG.GOOGLE_CLIENT_ID from config.js.
  */
 const AuthManager = (() => {
+    const PROFILE_KEY = 'salk_profile';
     let tokenClient = null;
     let accessToken = null;
-    let onSignInCallback = null;
+    let onIdentifiedCallback = null;
+    let onAccessTokenCallback = null;
     let onSignOutCallback = null;
 
-    function init(onSignIn, onSignOut) {
-        onSignInCallback = onSignIn;
+    function init(onIdentified, onAccessToken, onSignOut) {
+        onIdentifiedCallback = onIdentified;
+        onAccessTokenCallback = onAccessToken;
         onSignOutCallback = onSignOut;
 
         if (typeof CONFIG === 'undefined' || !CONFIG.GOOGLE_CLIENT_ID ||
@@ -18,39 +23,52 @@ const AuthManager = (() => {
             return;
         }
 
-        const STORAGE_KEY = 'salk_signed_in';
-
         const waitForGIS = setInterval(() => {
-            if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
+            if (typeof google !== 'undefined' && google.accounts &&
+                google.accounts.oauth2 && google.accounts.id) {
                 clearInterval(waitForGIS);
+
+                // Token client for Drive API access (requested on user gesture)
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CONFIG.GOOGLE_CLIENT_ID,
                     scope: 'https://www.googleapis.com/auth/drive.appdata',
                     callback: (response) => {
                         if (response.error) {
-                            console.error('Auth error:', response.error);
-                            localStorage.removeItem(STORAGE_KEY);
+                            console.error('Token error:', response.error);
                             return;
                         }
                         accessToken = response.access_token;
-                        localStorage.setItem(STORAGE_KEY, '1');
-                        if (onSignInCallback) onSignInCallback(accessToken);
+                        if (onAccessTokenCallback) onAccessTokenCallback(accessToken);
                     },
                     error_callback: (err) => {
-                        console.error('Auth error_callback:', err);
-                        localStorage.removeItem(STORAGE_KEY);
+                        console.error('Token error:', err);
                     },
                 });
 
-                // If user was previously signed in, silently re-acquire token
-                if (localStorage.getItem(STORAGE_KEY)) {
-                    tokenClient.requestAccessToken({ prompt: '' });
-                }
+                // ID client for session persistence (auto_select for returning users)
+                google.accounts.id.initialize({
+                    client_id: CONFIG.GOOGLE_CLIENT_ID,
+                    callback: handleCredential,
+                    auto_select: true,
+                });
+                google.accounts.id.prompt();
             }
         }, 100);
 
-        // Give up after 10 seconds
         setTimeout(() => clearInterval(waitForGIS), 10000);
+    }
+
+    function handleCredential(response) {
+        let profile;
+        try {
+            const payload = JSON.parse(atob(response.credential.split('.')[1]));
+            profile = { name: payload.name || payload.email, picture: payload.picture || '' };
+        } catch (e) {
+            console.error('Failed to decode credential:', e);
+            return;
+        }
+        localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+        if (onIdentifiedCallback) onIdentifiedCallback(profile);
     }
 
     function signIn() {
@@ -58,7 +76,7 @@ const AuthManager = (() => {
             console.warn('AuthManager: GIS not initialized.');
             return;
         }
-        tokenClient.requestAccessToken({ prompt: 'consent' });
+        tokenClient.requestAccessToken({ prompt: '' });
     }
 
     function signOut() {
@@ -66,7 +84,10 @@ const AuthManager = (() => {
             google.accounts.oauth2.revoke(accessToken, () => {});
         }
         accessToken = null;
-        localStorage.removeItem('salk_signed_in');
+        localStorage.removeItem(PROFILE_KEY);
+        if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+            google.accounts.id.disableAutoSelect();
+        }
         if (onSignOutCallback) onSignOutCallback();
     }
 
@@ -78,7 +99,16 @@ const AuthManager = (() => {
         return !!accessToken;
     }
 
-    function refreshToken() {
+    function getStoredProfile() {
+        try {
+            return JSON.parse(localStorage.getItem(PROFILE_KEY));
+        } catch {
+            return null;
+        }
+    }
+
+    function ensureAccessToken() {
+        if (accessToken) return Promise.resolve(accessToken);
         return new Promise((resolve, reject) => {
             if (!tokenClient) return reject(new Error('GIS not initialized'));
             const origCallback = tokenClient.callback;
@@ -92,5 +122,10 @@ const AuthManager = (() => {
         });
     }
 
-    return { init, signIn, signOut, getToken, isSignedIn, refreshToken };
+    function refreshToken() {
+        accessToken = null;
+        return ensureAccessToken();
+    }
+
+    return { init, signIn, signOut, getToken, isSignedIn, getStoredProfile, ensureAccessToken, refreshToken };
 })();

@@ -120,28 +120,45 @@ function restoreFormParameters(params) {
 }
 
 /**
- * Handles successful sign-in: fetches profile, updates UI, auto-loads from Drive.
- * @param {string} token
+ * Shows the user's profile in the header and reveals Drive buttons.
+ * Called when user is identified (via ID token auto_select or explicit sign-in).
+ * @param {Object} profile - { name, picture }
  */
-async function handleSignIn(token) {
-    try {
-        const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-            headers: { 'Authorization': `Bearer ${token}` },
-        })
-        if (resp.ok) {
-            const profile = await resp.json()
-            ui.userAvatar.src = profile.picture || ''
-            ui.userName.textContent = profile.name || profile.email || ''
-        }
-    } catch (e) {
-        console.warn('Could not fetch user profile:', e)
+function handleIdentified(profile) {
+    if (profile) {
+        ui.userAvatar.src = profile.picture || ''
+        ui.userName.textContent = profile.name || ''
     }
-
     ui.signInBtn.classList.add('hidden')
     ui.userProfile.classList.remove('hidden')
     ui.userProfile.classList.add('flex')
     ui.saveDriveBtn.classList.remove('hidden')
     ui.loadDriveBtn.classList.remove('hidden')
+}
+
+/**
+ * Called when an access token is acquired. Auto-loads schedule from Drive.
+ * @param {string} token
+ */
+async function handleAccessToken(token) {
+    // If profile isn't shown yet (explicit sign-in without ID flow), fetch and show it
+    if (ui.signInBtn && !ui.signInBtn.classList.contains('hidden')) {
+        let profile = AuthManager.getStoredProfile()
+        if (!profile) {
+            try {
+                const resp = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                })
+                if (resp.ok) {
+                    const data = await resp.json()
+                    profile = { name: data.name || data.email, picture: data.picture || '' }
+                }
+            } catch (e) {
+                console.warn('Could not fetch profile:', e)
+            }
+        }
+        handleIdentified(profile)
+    }
 
     // Auto-load saved schedule
     try {
@@ -184,17 +201,19 @@ function handleSignOut() {
  * @param {Array<ScheduleEntry>} schedule
  */
 async function autoSaveToDrive(schedule) {
-    if (!AuthManager.isSignedIn() || !schedule || schedule.length === 0) return
+    if (!schedule || schedule.length === 0) return
+    let token = AuthManager.getToken()
+    if (!token) return
     try {
         const data = scheduleToJSON(schedule)
-        await DriveStorage.saveSchedule(AuthManager.getToken(), data)
+        await DriveStorage.saveSchedule(token, data)
         showToast('Schedule saved to Google Drive')
     } catch (e) {
         if (e.message === 'TOKEN_EXPIRED') {
             try {
-                const newToken = await AuthManager.refreshToken()
+                token = await AuthManager.refreshToken()
                 const data = scheduleToJSON(schedule)
-                await DriveStorage.saveSchedule(newToken, data)
+                await DriveStorage.saveSchedule(token, data)
                 showToast('Schedule saved to Google Drive')
             } catch (retryErr) {
                 showToast('Could not save to Drive. Please sign in again.', 'error')
@@ -839,18 +858,26 @@ function initialize() {
     }
     if (ui.saveDriveBtn) {
         ui.saveDriveBtn.addEventListener("click", async () => {
-            if (currentSchedule) {
-                await autoSaveToDrive(currentSchedule)
-            } else {
+            if (!currentSchedule) {
                 showToast('No schedule to save. Generate or import one first.', 'error')
+                return
+            }
+            try {
+                const token = await AuthManager.ensureAccessToken()
+                const data = scheduleToJSON(currentSchedule)
+                await DriveStorage.saveSchedule(token, data)
+                showToast('Schedule saved to Google Drive')
+            } catch (e) {
+                showToast('Could not save to Drive.', 'error')
+                console.error('Drive save error:', e)
             }
         })
     }
     if (ui.loadDriveBtn) {
         ui.loadDriveBtn.addEventListener("click", async () => {
-            if (!AuthManager.isSignedIn()) return
             try {
-                const data = await DriveStorage.loadSchedule(AuthManager.getToken())
+                const token = await AuthManager.ensureAccessToken()
+                const data = await DriveStorage.loadSchedule(token)
                 if (data) {
                     const schedule = jsonToSchedule(data)
                     if (schedule.length > 0) {
@@ -874,7 +901,7 @@ function initialize() {
 
     // Initialize AuthManager if available
     if (typeof AuthManager !== 'undefined') {
-        AuthManager.init(handleSignIn, handleSignOut)
+        AuthManager.init(handleIdentified, handleAccessToken, handleSignOut)
     }
 
     // --- Initial Page Setup ---
