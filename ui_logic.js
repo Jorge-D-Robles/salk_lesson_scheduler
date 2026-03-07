@@ -87,7 +87,7 @@ function showDayActionPopover(button, dayIndex) {
     popover.className = 'day-action-popover'
     popover.innerHTML = `
         <button data-action="skip">Skip this day</button>
-        <button data-action="recalculate">Recalculate from here</button>
+        <button data-action="recalculate">Skip and rebuild from next day</button>
     `
     popover.style.top = `${rect.bottom + 4}px`
     popover.style.left = `${rect.left}px`
