@@ -85,8 +85,14 @@ const AuthManager = (() => {
         }
         localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
         if (onIdentifiedCallback) onIdentifiedCallback(profile);
-        // Don't request access token here — it requires a user gesture.
-        // User will click "Sign in with Google" or a Drive button to get one.
+
+        // Silently request access token for auto-load.
+        // Works without popup if user previously consented to the scope.
+        // If popup is blocked (e.g. first time), fails silently — user
+        // can click "Sign in with Google" or "Load from Drive" instead.
+        if (!accessToken && tokenClient) {
+            tokenClient.requestAccessToken({ prompt: '' });
+        }
     }
 
     function signIn() {
