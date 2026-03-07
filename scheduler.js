@@ -516,3 +516,33 @@ function recalculateFromDay(schedule, dayIndex, params) {
 
     return { schedule: [...prior, ...newSchedule], builder }
 }
+
+function recalculateAfterDay(schedule, dayIndex, params) {
+    const prior = schedule.slice(0, dayIndex + 1)
+
+    const history = []
+    for (const entry of prior) {
+        const yyyy = entry.date.getFullYear()
+        const mm = String(entry.date.getMonth() + 1).padStart(2, '0')
+        const dd = String(entry.date.getDate()).padStart(2, '0')
+        const formattedDate = `${yyyy}-${mm}-${dd}`
+        for (const lesson of entry.lessons) {
+            const periodNum = parseInt(lesson.period.replace('Pd ', ''), 10)
+            history.push({ date: formattedDate, period: periodNum, group: lesson.group })
+        }
+    }
+
+    const lastKeptDay = schedule[dayIndex]
+    const newStart = new Date(lastKeptDay.date)
+    newStart.setDate(newStart.getDate() + 1)
+    const newStartStr = `${newStart.getFullYear()}-${String(newStart.getMonth() + 1).padStart(2, '0')}-${String(newStart.getDate()).padStart(2, '0')}`
+
+    const nextDayCycle = lastKeptDay.dayCycle + 1
+    const remainingWeeks = Math.max(1, Math.ceil((params.originalEndDate - newStart) / (7 * 86400000)))
+    const filteredDaysOff = params.daysOff.filter(d => d >= newStartStr)
+
+    const builder = new ScheduleBuilder(newStartStr, nextDayCycle, filteredDaysOff, remainingWeeks, history.length > 0 ? history : null)
+    const newSchedule = builder.buildSchedule()
+
+    return { schedule: [...prior, ...newSchedule], builder }
+}

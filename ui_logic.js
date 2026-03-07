@@ -46,6 +46,11 @@ let currentScheduleParams = null
 let scheduleModified = false
 let activePopover = null
 
+// Drag-and-drop state
+let dragState = null
+let activeSwapWarning = null
+let lastHoveredCell = null
+
 // --- Function Definitions ---
 
 /**
@@ -53,17 +58,38 @@ let activePopover = null
  * @param {string} message - The message to display.
  * @param {'success'|'error'|'info'} [type='success'] - The toast type.
  */
-function showToast(message, type = 'success') {
+function showToast(message, type = 'success', action = null) {
     if (!ui.toastContainer) return
     const toast = document.createElement('div')
     toast.className = `toast toast-${type}`
-    toast.textContent = message
+    toast.style.display = 'flex'
+    toast.style.alignItems = 'center'
+    const msgSpan = document.createElement('span')
+    msgSpan.textContent = message
+    toast.appendChild(msgSpan)
+    if (action) {
+        const btn = document.createElement('button')
+        btn.className = 'toast-action-btn'
+        btn.textContent = action.label
+        btn.addEventListener('click', () => { toast.remove(); action.callback() })
+        toast.appendChild(btn)
+        const closeBtn = document.createElement('button')
+        closeBtn.className = 'toast-close-btn'
+        closeBtn.innerHTML = '&times;'
+        closeBtn.addEventListener('click', () => {
+            toast.style.opacity = '0'
+            toast.style.transition = 'opacity 0.3s'
+            setTimeout(() => toast.remove(), 300)
+        })
+        toast.appendChild(closeBtn)
+    } else {
+        setTimeout(() => {
+            toast.style.opacity = '0'
+            toast.style.transition = 'opacity 0.3s'
+            setTimeout(() => toast.remove(), 300)
+        }, 3000)
+    }
     ui.toastContainer.appendChild(toast)
-    setTimeout(() => {
-        toast.style.opacity = '0'
-        toast.style.transition = 'opacity 0.3s'
-        setTimeout(() => toast.remove(), 300)
-    }, 3000)
 }
 
 function dismissPopover() {
@@ -134,6 +160,119 @@ function updateSaveButtonUnsaved(unsaved) {
         ui.saveDriveBtn.classList.remove('bg-amber-600', 'hover:bg-amber-700')
         ui.saveDriveBtn.classList.add('bg-blue-600', 'hover:bg-blue-700')
     }
+}
+
+// --- Drag-and-drop period swapping ---
+
+function find28DayViolations(dayIndex, group, period) {
+    if (!currentSchedule || group.startsWith('MU')) return []
+    const violations = []
+    const targetDate = currentSchedule[dayIndex].date
+    for (let i = 0; i < currentSchedule.length; i++) {
+        if (i === dayIndex) continue
+        for (const lesson of currentSchedule[i].lessons) {
+            if (lesson.group === group && lesson.period === period) {
+                const daysBetween = Math.round(Math.abs(targetDate - currentSchedule[i].date) / 86400000)
+                if (daysBetween < 28) {
+                    const conflictDate = currentSchedule[i].date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                    violations.push({ group, period, conflictDate, daysBetween })
+                }
+            }
+        }
+    }
+    return violations
+}
+
+function checkSwapViolations(dayIndex, lessonIndexA, lessonIndexB) {
+    const entry = currentSchedule[dayIndex]
+    const lessonA = entry.lessons[lessonIndexA]
+    const lessonB = entry.lessons[lessonIndexB]
+    // After swap: groupA goes to periodB, groupB goes to periodA
+    const violations = [
+        ...find28DayViolations(dayIndex, lessonA.group, lessonB.period),
+        ...find28DayViolations(dayIndex, lessonB.group, lessonA.period),
+    ]
+    return violations
+}
+
+function executeGroupSwap(dayIndex, lessonIndexA, lessonIndexB) {
+    const entry = currentSchedule[dayIndex]
+    const lessonA = entry.lessons[lessonIndexA]
+    const lessonB = entry.lessons[lessonIndexB]
+    const groupA = lessonA.group
+    const groupB = lessonB.group
+    // Swap groups — periods stay fixed
+    lessonA.group = groupB
+    lessonB.group = groupA
+    displaySchedule(currentSchedule)
+    ui.scheduleOutput.classList.remove('hidden')
+    scheduleModified = true
+    updateSaveButtonUnsaved(true)
+    showToast(`Swapped ${groupA} \u2194 ${groupB}`, 'info', {
+        label: 'Rebuild from here',
+        callback: () => {
+            if (!currentScheduleParams) {
+                showToast('Cannot rebuild: original parameters not available.', 'error')
+                return
+            }
+            const result = recalculateAfterDay(currentSchedule, dayIndex, currentScheduleParams)
+            currentSchedule = result.schedule
+            displaySchedule(currentSchedule)
+            showToast('Schedule rebuilt from swapped day.', 'info')
+        }
+    })
+}
+
+function showSwapWarningTooltip(cell, violations) {
+    dismissSwapWarning()
+    const tooltip = document.createElement('div')
+    tooltip.className = 'swap-warning-tooltip'
+    let html = violations.map(v =>
+        `<div class="warn-line">${v.group} in ${v.period}: only ${v.daysBetween} days from ${v.conflictDate}</div>`
+    ).join('')
+    html += '<div class="warn-hint">Drop to swap anyway</div>'
+    tooltip.innerHTML = html
+    const rect = cell.getBoundingClientRect()
+    tooltip.style.top = `${rect.top - 8}px`
+    tooltip.style.left = `${rect.right + 8}px`
+    document.body.appendChild(tooltip)
+    // Adjust if off-screen right
+    const tooltipRect = tooltip.getBoundingClientRect()
+    if (tooltipRect.right > window.innerWidth - 8) {
+        tooltip.style.left = `${rect.left - tooltipRect.width - 8}px`
+    }
+    // Adjust if off-screen top
+    if (tooltipRect.top < 8) {
+        tooltip.style.top = `${rect.bottom + 8}px`
+    }
+    activeSwapWarning = tooltip
+}
+
+function dismissSwapWarning() {
+    if (activeSwapWarning) {
+        activeSwapWarning.remove()
+        activeSwapWarning = null
+    }
+}
+
+function highlightDragRow(activeDayIndex) {
+    const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer)')
+    rows.forEach(row => {
+        const btn = row.querySelector('.day-delete-btn')
+        if (!btn) return
+        const idx = parseInt(btn.dataset.dayIndex, 10)
+        if (idx === activeDayIndex) {
+            row.classList.add('drag-row-active')
+        } else {
+            row.classList.add('drag-row-inactive')
+        }
+    })
+}
+
+function clearRowHighlighting() {
+    ui.scheduleTableBody.querySelectorAll('.drag-row-active, .drag-row-inactive').forEach(row => {
+        row.classList.remove('drag-row-active', 'drag-row-inactive')
+    })
 }
 
 function storeScheduleParams(startDate, weeks, daysOff) {
@@ -800,7 +939,7 @@ function displaySchedule(schedule) {
                 const groupClass = entry.lessons[i].group.startsWith("MU")
                     ? "text-red-600"
                     : "text-gray-800"
-                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td><td class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold">${entry.lessons[i].group}</td>`
+                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td><td draggable="true" class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}">${entry.lessons[i].group}</td>`
             } else {
                 rowHTML +=
                     '<td class="px-2 py-3"></td><td class="px-2 py-3"></td>'
@@ -919,6 +1058,97 @@ function initialize() {
             showDayActionPopover(btn, dayIndex)
         }
     })
+
+    // --- Drag-and-drop event delegation ---
+    ui.scheduleTableBody.addEventListener('dragstart', (e) => {
+        const cell = e.target.closest('.lesson-group-cell')
+        if (!cell) return
+        dragState = {
+            dayIndex: parseInt(cell.dataset.dayIndex, 10),
+            lessonIndex: parseInt(cell.dataset.lessonIndex, 10),
+            group: cell.dataset.group,
+            sourceCell: cell,
+        }
+        cell.classList.add('dragging')
+        highlightDragRow(dragState.dayIndex)
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', '')
+    })
+
+    ui.scheduleTableBody.addEventListener('dragover', (e) => {
+        if (!dragState) return
+        const cell = e.target.closest('.lesson-group-cell')
+        if (!cell || cell === dragState.sourceCell) return
+        const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
+        if (targetDayIndex !== dragState.dayIndex) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (cell === lastHoveredCell) return
+        // Clear previous hover target
+        if (lastHoveredCell) {
+            lastHoveredCell.classList.remove('drag-over-valid', 'drag-over-warning')
+        }
+        lastHoveredCell = cell
+        const targetLessonIndex = parseInt(cell.dataset.lessonIndex, 10)
+        const violations = checkSwapViolations(dragState.dayIndex, dragState.lessonIndex, targetLessonIndex)
+        if (violations.length > 0) {
+            cell.classList.add('drag-over-warning')
+            showSwapWarningTooltip(cell, violations)
+        } else {
+            cell.classList.add('drag-over-valid')
+            dismissSwapWarning()
+        }
+    })
+
+    ui.scheduleTableBody.addEventListener('dragenter', (e) => {
+        if (!dragState) return
+        const cell = e.target.closest('.lesson-group-cell')
+        if (!cell) return
+        const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
+        if (targetDayIndex === dragState.dayIndex && cell !== dragState.sourceCell) {
+            e.preventDefault()
+        }
+    })
+
+    ui.scheduleTableBody.addEventListener('dragleave', (e) => {
+        if (!dragState) return
+        const cell = e.target.closest('.lesson-group-cell')
+        if (cell && cell === lastHoveredCell) {
+            // Only clear if we're truly leaving (not entering a child)
+            const related = e.relatedTarget
+            if (!cell.contains(related)) {
+                cell.classList.remove('drag-over-valid', 'drag-over-warning')
+                lastHoveredCell = null
+                dismissSwapWarning()
+            }
+        }
+    })
+
+    ui.scheduleTableBody.addEventListener('drop', (e) => {
+        if (!dragState) return
+        e.preventDefault()
+        const cell = e.target.closest('.lesson-group-cell')
+        if (!cell || cell === dragState.sourceCell) return
+        const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
+        if (targetDayIndex !== dragState.dayIndex) return
+        const targetLessonIndex = parseInt(cell.dataset.lessonIndex, 10)
+        executeGroupSwap(dragState.dayIndex, dragState.lessonIndex, targetLessonIndex)
+        // Cleanup happens in dragend
+    })
+
+    ui.scheduleTableBody.addEventListener('dragend', () => {
+        if (dragState && dragState.sourceCell) {
+            dragState.sourceCell.classList.remove('dragging')
+        }
+        if (lastHoveredCell) {
+            lastHoveredCell.classList.remove('drag-over-valid', 'drag-over-warning')
+            lastHoveredCell = null
+        }
+        clearRowHighlighting()
+        dismissSwapWarning()
+        dragState = null
+    })
+
     ui.form.addEventListener("submit", (e) => {
         e.preventDefault()
         runScheduler()
