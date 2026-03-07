@@ -38,6 +38,7 @@ const ui = {
     saveDriveBtn: null,
     loadDriveBtn: null,
     toastContainer: null,
+    undoBtn: null,
 }
 
 // Holds the most recently displayed schedule for Drive persistence
@@ -51,6 +52,8 @@ let dragState = null
 let activeSwapWarning = null
 let lastHoveredCell = null
 let activeSwapToast = null
+let undoStack = []
+let activeIssueTooltip = null
 
 // --- Function Definitions ---
 
@@ -139,6 +142,7 @@ function showDayActionPopover(button, dayIndex) {
 }
 
 function handleDayAction(dayIndex, action) {
+    pushUndo()
     if (action === 'skip') {
         currentSchedule = skipDay(currentSchedule, dayIndex)
     } else if (action === 'recalculate') {
@@ -258,6 +262,7 @@ function checkSwapViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, 
 }
 
 function executeGroupSwap(sourceDayIndex, sourceLessonIndex, targetDayIndex, targetLessonIndex) {
+    pushUndo()
     const sourceEntry = currentSchedule[sourceDayIndex]
     const targetEntry = currentSchedule[targetDayIndex]
     const lessonA = sourceEntry.lessons[sourceLessonIndex]
@@ -279,6 +284,7 @@ function executeGroupSwap(sourceDayIndex, sourceLessonIndex, targetDayIndex, tar
                 showToast('Cannot rebuild: original parameters not available.', 'error')
                 return
             }
+            pushUndo()
             const result = recalculateAfterDay(currentSchedule, rebuildDayIndex, currentScheduleParams)
             currentSchedule = result.schedule
             displaySchedule(currentSchedule)
@@ -327,6 +333,13 @@ function dismissSwapWarning() {
     }
 }
 
+function dismissIssueTooltip() {
+    if (activeIssueTooltip) {
+        activeIssueTooltip.remove()
+        activeIssueTooltip = null
+    }
+}
+
 function highlightDragRow(activeDayCycle) {
     const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer)')
     rows.forEach(row => {
@@ -352,6 +365,45 @@ function storeScheduleParams(startDate, weeks, daysOff) {
     const endDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
     endDate.setDate(endDate.getDate() + weeks * 7)
     currentScheduleParams = { originalEndDate: endDate, daysOff: daysOff || [] }
+}
+
+function cloneSchedule(schedule) {
+    const clone = schedule.map(entry => {
+        const cloned = new ScheduleEntry(new Date(entry.date), entry.dayCycle)
+        for (const lesson of entry.lessons) {
+            const periodNum = parseInt(lesson.period.replace(/\D/g, ''), 10)
+            cloned.addLesson(periodNum, lesson.group)
+        }
+        return cloned
+    })
+    if (schedule.achievedDayRule !== undefined) {
+        clone.achievedDayRule = schedule.achievedDayRule
+    }
+    return clone
+}
+
+function pushUndo() {
+    if (currentSchedule) undoStack.push(cloneSchedule(currentSchedule))
+    updateUndoButton()
+}
+
+function performUndo() {
+    if (undoStack.length === 0) return
+    currentSchedule = undoStack.pop()
+    displaySchedule(currentSchedule)
+    ui.scheduleOutput.classList.remove('hidden')
+    updateUndoButton()
+    showToast('Undo successful', 'info')
+}
+
+function updateUndoButton() {
+    if (!ui.undoBtn) return
+    ui.undoBtn.classList.toggle('hidden', undoStack.length === 0)
+}
+
+function clearUndoStack() {
+    undoStack = []
+    updateUndoButton()
 }
 
 /**
@@ -460,6 +512,7 @@ async function handleAccessToken(token) {
                 restoreFormParameters(data.parameters)
                 displaySchedule(schedule)
                 currentSchedule = schedule
+                clearUndoStack()
                 if (data.parameters && data.parameters.startDate && data.parameters.weeks) {
                     storeScheduleParams(data.parameters.startDate, parseInt(data.parameters.weeks, 10), data.parameters.daysOff || [])
                 } else {
@@ -532,6 +585,7 @@ async function autoSaveToDrive(schedule) {
  * Handles the main form submission event to generate and display the schedule.
  */
 function runScheduler() {
+    clearUndoStack()
     ui.loadingIndicator.classList.remove("hidden")
     ui.scheduleOutput.classList.add("hidden")
     ui.generateBtn.disabled = true
@@ -862,6 +916,7 @@ function handleCSVImport(event) {
         }
         displaySchedule(schedule)
         currentSchedule = schedule
+        clearUndoStack()
         const lastDate = schedule[schedule.length - 1].date
         const csvEndDate = new Date(lastDate)
         csvEndDate.setDate(csvEndDate.getDate() + 14)
@@ -1039,7 +1094,7 @@ function displaySchedule(schedule) {
                     : "text-gray-800"
                 const issues = cellIssues.get(`${index}-${i}`)
                 const indicator = issues
-                    ? `<span class="cell-issue-indicator" title="${issues.join('\n').replace(/"/g, '&quot;')}">&#9888;</span>`
+                    ? `<span class="cell-issue-indicator" data-issues="${issues.join('\n').replace(/"/g, '&quot;')}">&#9888;</span>`
                     : ''
                 rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td><td draggable="true" class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}">${entry.lessons[i].group}${indicator}</td>`
             } else {
@@ -1150,6 +1205,8 @@ function initialize() {
     ui.saveDriveBtn = document.getElementById("save-drive-btn")
     ui.loadDriveBtn = document.getElementById("load-drive-btn")
     ui.toastContainer = document.getElementById("toast-container")
+    ui.undoBtn = document.getElementById("undo-btn")
+    if (ui.undoBtn) ui.undoBtn.addEventListener('click', performUndo)
 
     // --- Attach Event Listeners ---
     ui.scheduleTableBody.addEventListener('click', (e) => {
@@ -1163,6 +1220,7 @@ function initialize() {
 
     // --- Drag-and-drop event delegation ---
     ui.scheduleTableBody.addEventListener('dragstart', (e) => {
+        dismissIssueTooltip()
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell) return
         const parsedDayIndex = parseInt(cell.dataset.dayIndex, 10)
@@ -1253,6 +1311,36 @@ function initialize() {
         dragState = null
     })
 
+    // --- Issue tooltip hover delegation ---
+    ui.scheduleTableBody.addEventListener('mouseenter', (e) => {
+        const indicator = e.target.closest('.cell-issue-indicator')
+        if (!indicator) return
+        const issuesText = indicator.dataset.issues
+        if (!issuesText) return
+        dismissIssueTooltip()
+        const tooltip = document.createElement('div')
+        tooltip.className = 'cell-issue-tooltip'
+        tooltip.innerHTML = issuesText.split('\n').map(line => `<div class="issue-line">${line}</div>`).join('')
+        const rect = indicator.getBoundingClientRect()
+        tooltip.style.top = `${rect.top - 8}px`
+        tooltip.style.left = `${rect.right + 8}px`
+        document.body.appendChild(tooltip)
+        const tooltipRect = tooltip.getBoundingClientRect()
+        if (tooltipRect.right > window.innerWidth - 8) {
+            tooltip.style.left = `${rect.left - tooltipRect.width - 8}px`
+        }
+        if (tooltipRect.top < 8) {
+            tooltip.style.top = `${rect.bottom + 8}px`
+        }
+        activeIssueTooltip = tooltip
+    }, true)
+
+    ui.scheduleTableBody.addEventListener('mouseleave', (e) => {
+        if (e.target.closest('.cell-issue-indicator')) {
+            dismissIssueTooltip()
+        }
+    }, true)
+
     ui.form.addEventListener("submit", (e) => {
         e.preventDefault()
         runScheduler()
@@ -1336,6 +1424,7 @@ function initialize() {
                         restoreFormParameters(data.parameters)
                         displaySchedule(schedule)
                         currentSchedule = schedule
+                        clearUndoStack()
                         if (data.parameters && data.parameters.startDate && data.parameters.weeks) {
                             storeScheduleParams(data.parameters.startDate, parseInt(data.parameters.weeks, 10), data.parameters.daysOff || [])
                         } else {
