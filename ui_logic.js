@@ -42,6 +42,9 @@ const ui = {
 
 // Holds the most recently displayed schedule for Drive persistence
 let currentSchedule = null
+let currentScheduleParams = null
+let scheduleModified = false
+let activePopover = null
 
 // --- Function Definitions ---
 
@@ -61,6 +64,83 @@ function showToast(message, type = 'success') {
         toast.style.transition = 'opacity 0.3s'
         setTimeout(() => toast.remove(), 300)
     }, 3000)
+}
+
+function dismissPopover() {
+    if (activePopover) {
+        activePopover.remove()
+        activePopover = null
+        document.removeEventListener('click', dismissPopoverOutside)
+    }
+}
+
+function dismissPopoverOutside(e) {
+    if (activePopover && !activePopover.contains(e.target)) {
+        dismissPopover()
+    }
+}
+
+function showDayActionPopover(button, dayIndex) {
+    dismissPopover()
+    const rect = button.getBoundingClientRect()
+    const popover = document.createElement('div')
+    popover.className = 'day-action-popover'
+    popover.innerHTML = `
+        <button data-action="skip">Skip this day</button>
+        <button data-action="recalculate">Recalculate from here</button>
+    `
+    popover.style.top = `${rect.bottom + 4}px`
+    popover.style.left = `${rect.left}px`
+
+    popover.addEventListener('click', (e) => {
+        const action = e.target.dataset.action
+        if (action) {
+            handleDayAction(dayIndex, action)
+            dismissPopover()
+        }
+    })
+
+    document.body.appendChild(popover)
+    activePopover = popover
+    setTimeout(() => document.addEventListener('click', dismissPopoverOutside), 0)
+}
+
+function handleDayAction(dayIndex, action) {
+    if (action === 'skip') {
+        currentSchedule = skipDay(currentSchedule, dayIndex)
+    } else if (action === 'recalculate') {
+        if (!currentScheduleParams) {
+            showToast('Cannot recalculate: original parameters not available.', 'error')
+            return
+        }
+        const result = recalculateFromDay(currentSchedule, dayIndex, currentScheduleParams)
+        currentSchedule = result.schedule
+    }
+    displaySchedule(currentSchedule)
+    ui.scheduleOutput.classList.remove('hidden')
+    scheduleModified = true
+    updateSaveButtonUnsaved(true)
+    showToast('Schedule modified. Save to Drive to keep changes.', 'info')
+}
+
+function updateSaveButtonUnsaved(unsaved) {
+    if (!ui.saveDriveBtn) return
+    if (unsaved) {
+        ui.saveDriveBtn.innerHTML = 'Save to Drive <span class="unsaved-dot"></span>'
+        ui.saveDriveBtn.classList.add('bg-amber-600', 'hover:bg-amber-700')
+        ui.saveDriveBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700')
+    } else {
+        ui.saveDriveBtn.textContent = 'Save to Drive'
+        ui.saveDriveBtn.classList.remove('bg-amber-600', 'hover:bg-amber-700')
+        ui.saveDriveBtn.classList.add('bg-blue-600', 'hover:bg-blue-700')
+    }
+}
+
+function storeScheduleParams(startDate, weeks, daysOff) {
+    const parts = startDate.split('-')
+    const endDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+    endDate.setDate(endDate.getDate() + weeks * 7)
+    currentScheduleParams = { originalEndDate: endDate, daysOff: daysOff || [] }
 }
 
 /**
@@ -169,6 +249,16 @@ async function handleAccessToken(token) {
                 restoreFormParameters(data.parameters)
                 displaySchedule(schedule)
                 currentSchedule = schedule
+                if (data.parameters && data.parameters.startDate && data.parameters.weeks) {
+                    storeScheduleParams(data.parameters.startDate, parseInt(data.parameters.weeks, 10), data.parameters.daysOff || [])
+                } else {
+                    const lastDate = schedule[schedule.length - 1].date
+                    const endD = new Date(lastDate)
+                    endD.setDate(endD.getDate() + 14)
+                    currentScheduleParams = { originalEndDate: endD, daysOff: [] }
+                }
+                scheduleModified = false
+                updateSaveButtonUnsaved(false)
                 ui.scheduleOutput.classList.remove('hidden')
                 showToast('Schedule loaded from Google Drive', 'info')
             }
@@ -253,6 +343,9 @@ function runScheduler() {
             const schedule = scheduleBuilder.buildSchedule()
             displaySchedule(schedule)
             currentSchedule = schedule
+            storeScheduleParams(startDate, weeks, daysOff)
+            scheduleModified = false
+            updateSaveButtonUnsaved(false)
             autoSaveToDrive(schedule)
         } catch (error) {
             console.error("Error generating schedule:", error)
@@ -557,6 +650,15 @@ function handleCSVImport(event) {
         }
         displaySchedule(schedule)
         currentSchedule = schedule
+        const lastDate = schedule[schedule.length - 1].date
+        const csvEndDate = new Date(lastDate)
+        csvEndDate.setDate(csvEndDate.getDate() + 14)
+        currentScheduleParams = {
+            originalEndDate: csvEndDate,
+            daysOff: Array.from(document.querySelectorAll('.day-off-input')).map(i => i.value).filter(Boolean),
+        }
+        scheduleModified = false
+        updateSaveButtonUnsaved(false)
         ui.scheduleOutput.classList.remove("hidden")
         ui.importCsvInput.value = ""
         autoSaveToDrive(schedule)
@@ -658,7 +760,7 @@ function displaySchedule(schedule) {
     ui.scheduleTableBody.innerHTML = ""
 
     if (schedule.length === 0) {
-        ui.scheduleTableBody.innerHTML = `<tr><td colspan="12" class="text-center py-4">No schedule generated. Check dates and days off.</td></tr>`
+        ui.scheduleTableBody.innerHTML = `<tr><td colspan="13" class="text-center py-4">No schedule generated. Check dates and days off.</td></tr>`
         return
     }
 
@@ -679,7 +781,7 @@ function displaySchedule(schedule) {
         if (entryWeekIdentifier !== currentWeekIdentifier) {
             const spacerRow = document.createElement("tr")
             spacerRow.className = "bg-gray-200 weekly-spacer"
-            spacerRow.innerHTML = `<td colspan="12" class="py-1"></td>`
+            spacerRow.innerHTML = `<td colspan="13" class="py-1"></td>`
             ui.scheduleTableBody.appendChild(spacerRow)
             currentWeekIdentifier = entryWeekIdentifier
         }
@@ -692,7 +794,7 @@ function displaySchedule(schedule) {
             day: "numeric",
         })
 
-        let rowHTML = `<td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700">${entry.dayCycle}</td>`
+        let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700">${entry.dayCycle}</td>`
         for (let i = 0; i < 5; i++) {
             if (entry.lessons[i]) {
                 const groupClass = entry.lessons[i].group.startsWith("MU")
@@ -717,7 +819,7 @@ function displaySchedule(schedule) {
             ) {
                 const cycleSpacerRow = document.createElement("tr")
                 cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
-                cycleSpacerRow.innerHTML = `<td colspan="12" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Period ---</td>`
+                cycleSpacerRow.innerHTML = `<td colspan="13" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Period ---</td>`
                 ui.scheduleTableBody.appendChild(cycleSpacerRow)
                 fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
             }
@@ -735,7 +837,10 @@ function exportTableToCSV(filename) {
     const header = []
     document
         .querySelectorAll("#schedule-table th")
-        .forEach((th) => header.push(`"${th.innerText}"`))
+        .forEach((th) => {
+            if (th.classList.contains('action-col')) return
+            header.push(`"${th.innerText}"`)
+        })
     csv.push(header.join(","))
 
     rows.forEach((row) => {
@@ -747,6 +852,7 @@ function exportTableToCSV(filename) {
         const cols = row.querySelectorAll("td")
         const rowData = []
         cols.forEach((col) => {
+            if (col.classList.contains('action-col')) return
             rowData.push('"' + col.innerText.replace(/"/g, '""') + '"')
         })
         csv.push(rowData.join(","))
@@ -805,6 +911,14 @@ function initialize() {
     ui.toastContainer = document.getElementById("toast-container")
 
     // --- Attach Event Listeners ---
+    ui.scheduleTableBody.addEventListener('click', (e) => {
+        const btn = e.target.closest('.day-delete-btn')
+        if (btn) {
+            e.stopPropagation()
+            const dayIndex = parseInt(btn.dataset.dayIndex, 10)
+            showDayActionPopover(btn, dayIndex)
+        }
+    })
     ui.form.addEventListener("submit", (e) => {
         e.preventDefault()
         runScheduler()
@@ -868,6 +982,8 @@ function initialize() {
                 const token = await AuthManager.ensureAccessToken()
                 const data = scheduleToJSON(currentSchedule)
                 await DriveStorage.saveSchedule(token, data)
+                scheduleModified = false
+                updateSaveButtonUnsaved(false)
                 showToast('Schedule saved to Google Drive')
             } catch (e) {
                 showToast('Could not save to Drive.', 'error')
@@ -886,6 +1002,16 @@ function initialize() {
                         restoreFormParameters(data.parameters)
                         displaySchedule(schedule)
                         currentSchedule = schedule
+                        if (data.parameters && data.parameters.startDate && data.parameters.weeks) {
+                            storeScheduleParams(data.parameters.startDate, parseInt(data.parameters.weeks, 10), data.parameters.daysOff || [])
+                        } else {
+                            const lastDate = schedule[schedule.length - 1].date
+                            const endD = new Date(lastDate)
+                            endD.setDate(endD.getDate() + 14)
+                            currentScheduleParams = { originalEndDate: endD, daysOff: [] }
+                        }
+                        scheduleModified = false
+                        updateSaveButtonUnsaved(false)
                         ui.scheduleOutput.classList.remove('hidden')
                         showToast('Schedule loaded from Google Drive', 'info')
                     } else {

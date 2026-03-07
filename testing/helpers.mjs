@@ -16,7 +16,7 @@ const ONE_DAY_MS = 86400000;
 /** Load ScheduleBuilder from scheduler.js using dynamic eval. */
 export function loadScheduler() {
     const code = readFileSync(SCHEDULER_PATH, 'utf8');
-    const fn = new Function(code + '\nreturn { ScheduleBuilder, ScheduleEntry };');
+    const fn = new Function(code + '\nreturn { ScheduleBuilder, ScheduleEntry, skipDay, recalculateFromDay };');
     return fn();
 }
 
