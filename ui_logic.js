@@ -227,11 +227,16 @@ function showSwapWarningTooltip(cell, violations) {
     dismissSwapWarning()
     const tooltip = document.createElement('div')
     tooltip.className = 'swap-warning-tooltip'
+    const closeBtn = document.createElement('button')
+    closeBtn.className = 'swap-warning-close'
+    closeBtn.innerHTML = '&times;'
+    closeBtn.addEventListener('click', () => dismissSwapWarning())
+    tooltip.appendChild(closeBtn)
     let html = violations.map(v =>
         `<div class="warn-line">${v.group} in ${v.period}: only ${v.daysBetween} days from ${v.conflictDate}</div>`
     ).join('')
     html += '<div class="warn-hint">Drop to swap anyway</div>'
-    tooltip.innerHTML = html
+    tooltip.insertAdjacentHTML('beforeend', html)
     const rect = cell.getBoundingClientRect()
     tooltip.style.top = `${rect.top - 8}px`
     tooltip.style.left = `${rect.right + 8}px`

@@ -139,13 +139,30 @@
                 background-color: #fffbeb;
                 border: 1px solid #f59e0b;
                 border-radius: 0.375rem;
-                padding: 0.5rem 0.75rem;
+                padding: 0.5rem 1.5rem 0.5rem 0.75rem;
                 font-size: 0.75rem;
                 color: #92400e;
                 max-width: 280px;
                 z-index: 60;
                 pointer-events: none;
                 box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            }
+            .swap-warning-close {
+                pointer-events: auto;
+                position: absolute;
+                top: 0.2rem;
+                right: 0.3rem;
+                background: none;
+                border: none;
+                color: #92400e;
+                font-size: 1rem;
+                font-weight: bold;
+                cursor: pointer;
+                line-height: 1;
+                padding: 0 0.15rem;
+            }
+            .swap-warning-close:hover {
+                color: #78350f;
             }
             .swap-warning-tooltip .warn-line {
                 margin-bottom: 0.15rem;
