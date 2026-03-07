@@ -18,6 +18,8 @@ const AuthManager = (() => {
             return;
         }
 
+        const STORAGE_KEY = 'salk_signed_in';
+
         const waitForGIS = setInterval(() => {
             if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
                 clearInterval(waitForGIS);
@@ -27,15 +29,23 @@ const AuthManager = (() => {
                     callback: (response) => {
                         if (response.error) {
                             console.error('Auth error:', response.error);
+                            localStorage.removeItem(STORAGE_KEY);
                             return;
                         }
                         accessToken = response.access_token;
+                        localStorage.setItem(STORAGE_KEY, '1');
                         if (onSignInCallback) onSignInCallback(accessToken);
                     },
                     error_callback: (err) => {
                         console.error('Auth error_callback:', err);
+                        localStorage.removeItem(STORAGE_KEY);
                     },
                 });
+
+                // If user was previously signed in, silently re-acquire token
+                if (localStorage.getItem(STORAGE_KEY)) {
+                    tokenClient.requestAccessToken({ prompt: '' });
+                }
             }
         }, 100);
 
@@ -56,6 +66,7 @@ const AuthManager = (() => {
             google.accounts.oauth2.revoke(accessToken, () => {});
         }
         accessToken = null;
+        localStorage.removeItem('salk_signed_in');
         if (onSignOutCallback) onSignOutCallback();
     }
 
