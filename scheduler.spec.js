@@ -149,7 +149,7 @@ const assertBalancedUsage = (schedule) => {
     const failureDetails = `Usage Imbalance: Group '${maxGroup}' was scheduled ${maxCount} times, while group '${minGroup}' was only scheduled ${minCount} times.
     Full Distribution: { ${allCounts} }`
 
-    const ACCEPTABLE_DIFFERENCE = 2
+    const ACCEPTABLE_DIFFERENCE = 1
     expect(maxCount - minCount).toBeLessThanOrEqual(
         ACCEPTABLE_DIFFERENCE,
         failureDetails

@@ -96,13 +96,13 @@ export function runChecks(schedule, builder) {
         if (d.lessons.filter(l => l.group === 'MU').length > 1) issues.push('MU');
     });
 
-    // Balance (max-min lesson count across groups ≤ 2)
+    // Balance (max-min lesson count across groups ≤ 1)
     const counts = new Map();
     schedule.forEach(d => d.lessons.forEach(l => {
         if (l.group !== 'MU') counts.set(l.group, (counts.get(l.group) || 0) + 1);
     }));
     const vals = [...counts.values()];
-    if (vals.length > 0 && Math.max(...vals) - Math.min(...vals) > 2)
+    if (vals.length > 0 && Math.max(...vals) - Math.min(...vals) > 1)
         issues.push(`BALANCE:${Math.max(...vals) - Math.min(...vals)}`);
 
     return issues;

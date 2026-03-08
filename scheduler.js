@@ -684,127 +684,6 @@ class ScheduleBuilder {
     }
 
     /**
-     * Post-processing: swap groups between periods within the same day
-     * to reduce cycle violations, while preserving 28-day constraints.
-     * Uses incremental gap checking for efficiency.
-     * @private
-     */
-    _improveCycleOrder(schedule, calendarFloor, maxViolations) {
-        const oneDayMs = 86400000
-        const allGroups = this.LESSON_GROUPS
-        const numGroups = allGroups.length
-
-        // Efficient violation counting using maintained flat sequence
-        let seq = []
-        let posMap = {}
-        const rebuildSeq = () => {
-            seq = []
-            posMap = {}
-            for (const d of schedule) {
-                for (const l of d.lessons) {
-                    if (l.group !== "MU") {
-                        if (!posMap[l.group]) posMap[l.group] = []
-                        posMap[l.group].push(seq.length)
-                    }
-                    seq.push(l.group)
-                }
-            }
-        }
-        const countViolations = () => {
-            let v = 0
-            for (const group of allGroups) {
-                const indices = posMap[group] || []
-                for (let i = 0; i < indices.length - 1; i++) {
-                    const between = new Set()
-                    for (let j = indices[i] + 1; j < indices[i + 1]; j++) {
-                        if (seq[j] !== "MU") between.add(seq[j])
-                    }
-                    if (between.size < numGroups - 1) v++
-                }
-            }
-            return v
-        }
-
-        rebuildSeq()
-        let totalV = countViolations()
-        if (totalV <= maxViolations) return
-
-        // Check 28-day constraint for a group+period on a specific date
-        const check28Day = (group, periodNum, targetDate, excludeDay) => {
-            // Check against historical period assignments (chunked mode)
-            if (this._hasHistoricalConflict(group, periodNum, targetDate, calendarFloor)) return false
-            for (const s of schedule) {
-                if (s === excludeDay) continue
-                const dist = Math.abs((targetDate - s.date) / oneDayMs)
-                if (dist >= calendarFloor) continue
-                for (const l of s.lessons) {
-                    if (l.group === group) {
-                        const p = parseInt(l.period.replace("Pd ", ""), 10)
-                        if (p === periodNum) return false
-                    }
-                }
-            }
-            return true
-        }
-
-        // Within-day period swaps (change group-to-period assignments)
-        for (let pass = 0; pass < 3 && totalV > maxViolations; pass++) {
-        for (let d = 0; d < schedule.length && totalV > maxViolations; d++) {
-            const day = schedule[d]
-
-            for (let i = 0; i < day.lessons.length && totalV > maxViolations; i++) {
-                for (let j = i + 1; j < day.lessons.length; j++) {
-                    const li = day.lessons[i], lj = day.lessons[j]
-                    if (li.group === "MU" || lj.group === "MU") continue
-
-                    const g1 = li.group, g2 = lj.group
-                    const p1 = parseInt(li.period.replace("Pd ", ""), 10)
-                    const p2 = parseInt(lj.period.replace("Pd ", ""), 10)
-
-                    if (!check28Day(g1, p2, day.date, day)) continue
-                    if (!check28Day(g2, p1, day.date, day)) continue
-
-                    li.group = g2; lj.group = g1
-                    rebuildSeq()
-                    const newV = countViolations()
-                    if (newV < totalV) {
-                        totalV = newV
-                    } else {
-                        li.group = g1; lj.group = g2
-                        rebuildSeq()
-                    }
-                }
-            }
-        }
-        } // end within-day period swap
-
-        if (totalV <= maxViolations) return
-
-        // Within-day position swaps (reorder lesson array, no assignment changes)
-        for (let pass = 0; pass < 3 && totalV > maxViolations; pass++) {
-        for (let d = 0; d < schedule.length && totalV > maxViolations; d++) {
-            const lessons = schedule[d].lessons
-            for (let i = 0; i < lessons.length && totalV > maxViolations; i++) {
-                for (let j = i + 1; j < lessons.length; j++) {
-                    const tmp = lessons[i]
-                    lessons[i] = lessons[j]
-                    lessons[j] = tmp
-                    rebuildSeq()
-                    const newV = countViolations()
-                    if (newV < totalV) {
-                        totalV = newV
-                    } else {
-                        lessons[j] = lessons[i]
-                        lessons[i] = tmp
-                        rebuildSeq()
-                    }
-                }
-            }
-        }
-        } // end position swap
-    }
-
-    /**
      * Post-processing repair: scan for remaining 28-day violations (from Tier 4
      * fallback) and attempt within-day group swaps to fix them.
      * @private
@@ -916,7 +795,7 @@ class ScheduleBuilder {
             return new Set(groups)
         }
 
-        for (let pass = 0; pass < 5; pass++) {
+        for (let pass = 0; pass < 10; pass++) {
             const counts = this._getAdjustedCounts()
             for (const day of schedule) {
                 for (const l of day.lessons) {
@@ -926,7 +805,7 @@ class ScheduleBuilder {
 
             let maxC = Math.max(...Object.values(counts))
             let minC = Math.min(...Object.values(counts))
-            if (maxC - minC <= 2) return
+            if (maxC - minC <= 1) return
 
             let improved = false
             weekGroupsCache.clear()
@@ -936,12 +815,12 @@ class ScheduleBuilder {
             const end = pass % 2 === 0 ? -1 : schedule.length
             const step = pass % 2 === 0 ? -1 : 1
 
-            for (let d = start; d !== end && maxC - minC > 2; d += step) {
+            for (let d = start; d !== end && maxC - minC > 1; d += step) {
                 const day = schedule[d]
                 const weekId = this.getWeekIdentifier(day.date)
                 const weekGroups = getWeekGroups(weekId)
 
-                for (let li = 0; li < day.lessons.length && maxC - minC > 2; li++) {
+                for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                     const lesson = day.lessons[li]
                     if (lesson.group === "MU" || counts[lesson.group] !== maxC) continue
 
@@ -974,13 +853,6 @@ class ScheduleBuilder {
                         const oldGroup = lesson.group
                         lesson.group = candidate
 
-                        // Reject swap if it pushes cycle violations above threshold
-                        if (this._maxCycleViolations > 0 &&
-                            this._countCycleViolations(schedule) > this._maxCycleViolations) {
-                            lesson.group = oldGroup
-                            continue
-                        }
-
                         counts[oldGroup]--
                         counts[candidate]++
                         weekGroupsCache.clear()
@@ -1008,14 +880,14 @@ class ScheduleBuilder {
             let maxC = Math.max(...Object.values(counts))
             let minC = Math.min(...Object.values(counts))
 
-            if (maxC - minC > 2) {
+            if (maxC - minC > 1) {
                 weekGroupsCache.clear()
-                for (let d = 0; d < schedule.length && maxC - minC > 2; d++) {
+                for (let d = 0; d < schedule.length && maxC - minC > 1; d++) {
                     const day = schedule[d]
                     const weekId = this.getWeekIdentifier(day.date)
                     const weekGroups = getWeekGroups(weekId)
 
-                    for (let li = 0; li < day.lessons.length && maxC - minC > 2; li++) {
+                    for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                         const lesson = day.lessons[li]
                         if (lesson.group !== "MU") continue
 
@@ -1044,13 +916,7 @@ class ScheduleBuilder {
                             }
                             if (tooClose) continue
 
-                            // Check cycle violations
                             lesson.group = candidate
-                            if (this._maxCycleViolations > 0 &&
-                                this._countCycleViolations(schedule) > this._maxCycleViolations) {
-                                lesson.group = "MU"
-                                continue
-                            }
 
                             counts[candidate]++
                             weekGroupsCache.clear()
@@ -1073,13 +939,13 @@ class ScheduleBuilder {
             let maxC = Math.max(...Object.values(counts))
             let minC = Math.min(...Object.values(counts))
 
-            if (maxC - minC > 2) {
-                for (let d = schedule.length - 1; d >= 0 && maxC - minC > 2; d--) {
+            if (maxC - minC > 1) {
+                for (let d = schedule.length - 1; d >= 0 && maxC - minC > 1; d--) {
                     const day = schedule[d]
                     // Only if this day doesn't already have MU
                     if (day.lessons.some(l => l.group === "MU")) continue
 
-                    for (let li = 0; li < day.lessons.length && maxC - minC > 2; li++) {
+                    for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                         const lesson = day.lessons[li]
                         if (lesson.group === "MU") continue
                         if (counts[lesson.group] !== maxC) continue
@@ -1087,173 +953,10 @@ class ScheduleBuilder {
                         const oldGroup = lesson.group
                         lesson.group = "MU"
 
-                        // Check cycle violations
-                        if (this._maxCycleViolations > 0 &&
-                            this._countCycleViolations(schedule) > this._maxCycleViolations) {
-                            lesson.group = oldGroup
-                            continue
-                        }
-
                         counts[oldGroup]--
                         maxC = Math.max(...Object.values(counts))
                         break
                     }
-                }
-            }
-        }
-    }
-
-    _countCycleViolations(schedule) {
-        const numGroups = this.LESSON_GROUPS.length
-        const seq = []
-        const posMap = {}
-        for (const d of schedule) {
-            for (const l of d.lessons) {
-                if (l.group !== "MU") {
-                    if (!posMap[l.group]) posMap[l.group] = []
-                    posMap[l.group].push(seq.length)
-                }
-                seq.push(l.group)
-            }
-        }
-        let v = 0
-        for (const group of this.LESSON_GROUPS) {
-            const indices = posMap[group] || []
-            for (let i = 0; i < indices.length - 1; i++) {
-                const between = new Set()
-                for (let j = indices[i] + 1; j < indices[i + 1]; j++) {
-                    if (seq[j] !== "MU") between.add(seq[j])
-                }
-                if (between.size < numGroups - 1) v++
-            }
-        }
-        return v
-    }
-
-    /**
-     * Cross-day group swaps within the same week to minimize cycle violations.
-     * For each pair of days in a week, try swapping two groups' slot assignments
-     * (groups exchange periods and days). Safe for weekly uniqueness since each
-     * group still appears once per week. Accepts swaps that reduce total
-     * cycle violations while respecting 28-day constraints.
-     * @private
-     */
-    _improveCycleWithCrossDaySwaps(schedule, calendarFloor) {
-        const oneDayMs = 86400000
-
-        // Group schedule day indices by week
-        const weeks = []
-        let currentWeek = []
-        let lastWeekId = null
-        for (let d = 0; d < schedule.length; d++) {
-            const weekId = this.getWeekIdentifier(schedule[d].date)
-            if (weekId !== lastWeekId && currentWeek.length > 0) {
-                weeks.push(currentWeek)
-                currentWeek = []
-            }
-            currentWeek.push(d)
-            lastWeekId = weekId
-        }
-        if (currentWeek.length > 0) weeks.push(currentWeek)
-
-        // Check 28-day constraint for a group+period on a date, skipping certain days
-        const check28Day = (group, periodNum, targetDate, skipDaySet) => {
-            if (this._hasHistoricalConflict(group, periodNum, targetDate, calendarFloor)) return false
-            for (let d = 0; d < schedule.length; d++) {
-                if (skipDaySet.has(d)) continue
-                const s = schedule[d]
-                const dist = Math.abs((targetDate - s.date) / oneDayMs)
-                if (dist >= calendarFloor) continue
-                for (const l of s.lessons) {
-                    if (l.group === group) {
-                        const p = parseInt(l.period.replace("Pd ", ""), 10)
-                        if (p === periodNum) return false
-                    }
-                }
-            }
-            return true
-        }
-
-        let totalV = this._countCycleViolations(schedule)
-
-        for (let pass = 0; pass < 5 && totalV > 0; pass++) {
-            let improved = false
-            for (const weekDayIndices of weeks) {
-                for (let d1 = 0; d1 < weekDayIndices.length && totalV > 0; d1++) {
-                    for (let d2 = d1 + 1; d2 < weekDayIndices.length && totalV > 0; d2++) {
-                        const day1 = schedule[weekDayIndices[d1]]
-                        const day2 = schedule[weekDayIndices[d2]]
-                        const skipSet = new Set([weekDayIndices[d1], weekDayIndices[d2]])
-
-                        for (let l1 = 0; l1 < day1.lessons.length; l1++) {
-                            for (let l2 = 0; l2 < day2.lessons.length; l2++) {
-                                const lesson1 = day1.lessons[l1]
-                                const lesson2 = day2.lessons[l2]
-                                if (lesson1.group === "MU" || lesson2.group === "MU") continue
-
-                                const g1 = lesson1.group, g2 = lesson2.group
-                                const p1 = parseInt(lesson1.period.replace("Pd ", ""), 10)
-                                const p2 = parseInt(lesson2.period.replace("Pd ", ""), 10)
-
-                                // Check 28-day: g1 with p2 on day2, g2 with p1 on day1
-                                if (!check28Day(g1, p2, day2.date, skipSet)) continue
-                                if (!check28Day(g2, p1, day1.date, skipSet)) continue
-
-                                // Try the swap
-                                lesson1.group = g2
-                                lesson2.group = g1
-                                const newV = this._countCycleViolations(schedule)
-                                if (newV < totalV) {
-                                    totalV = newV
-                                    improved = true
-                                } else {
-                                    lesson1.group = g1
-                                    lesson2.group = g2
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (!improved) break
-        }
-    }
-
-    /**
-     * Final reordering pass: sort each day's lessons by LRU (least recently
-     * used first) to maximize gaps between consecutive appearances of the
-     * same group in the flat sequence. This directly minimizes cycle
-     * violations without changing any group-to-period assignments.
-     * @private
-     */
-    _reorderByCycleFairness(schedule) {
-        const numG = this.LESSON_GROUPS.length
-        const lastSeen = {}
-        for (let i = 0; i < numG; i++) {
-            lastSeen[this.LESSON_GROUPS[i]] = i - numG
-        }
-
-        let pos = 0
-        for (const day of schedule) {
-            const nonMU = []
-            const mu = []
-            for (const l of day.lessons) {
-                if (l.group === 'MU') mu.push(l)
-                else nonMU.push(l)
-            }
-
-            // Sort non-MU by lastSeen ascending (most stale first)
-            nonMU.sort((a, b) =>
-                (lastSeen[a.group] ?? -numG) - (lastSeen[b.group] ?? -numG)
-            )
-
-            day.lessons.length = 0
-            for (const l of nonMU) day.lessons.push(l)
-            for (const l of mu) day.lessons.push(l)
-
-            for (const l of day.lessons) {
-                if (l.group !== 'MU') {
-                    lastSeen[l.group] = pos++
                 }
             }
         }
@@ -1276,10 +979,7 @@ class ScheduleBuilder {
 
         const days = this._groupSlotsByDay(slots)
 
-        // Try constructions with day-stability first (better cycle order),
-        // then without (better balance for heavy absence patterns).
         let bestSchedule = null
-        let bestViolations = Infinity
         let bestSpread = Infinity
 
         const tryConstruction = (offset, dayStab) => {
@@ -1287,62 +987,32 @@ class ScheduleBuilder {
             if (!schedule) schedule = this._constructSchedule(days, 21, offset, dayStab)
             if (schedule) {
                 this._repairViolations(schedule, 28)
-                const v = this._countCycleViolations(schedule)
                 const s = this._combinedBalanceSpread(schedule)
-                if (!bestSchedule ||
-                    (v < bestViolations && s <= bestSpread) ||
-                    (s < bestSpread && v <= bestViolations) ||
-                    (v + s < bestViolations + bestSpread)) {
-                    bestViolations = v
+                if (!bestSchedule || s < bestSpread) {
                     bestSpread = s
                     bestSchedule = schedule
                 }
             }
         }
 
-        // Default: day-stability enabled
         tryConstruction(0, true)
-        // Also try without day-stability for comparison
         tryConstruction(0, false)
 
-        // Try alternate offsets if needed
-        if (bestViolations > 500 || bestSpread > 2) {
+        if (bestSpread > 1) {
             for (const offset of [7, 11, 3, 15, 19, 5, 9, 13, 17, 1]) {
                 tryConstruction(offset, true)
                 tryConstruction(offset, false)
-                if (bestViolations <= 500 && bestSpread <= 2) break
+                if (bestSpread <= 1) break
             }
         }
 
         if (!bestSchedule) return []
 
-        if (bestSchedule) {
-            this.achievedDayRule = 28
-            if (this.historicalLessonCounts) {
-                // Chunked mode: cycle ordering across chunks is meaningless,
-                // so skip cycle improvement and give the balancer full freedom
-                this._maxCycleViolations = 0
-                this._balanceLessonCounts(bestSchedule, 28)
-                this._balanceLessonCounts(bestSchedule, 28)
-            } else {
-                // Phase 1: Aggressively reduce cycle violations to create
-                // headroom for the balancer (target well below 500)
-                this._improveCycleOrder(bestSchedule, 28, 480)
-                // Phase 2: Interleaved balance + cycle repair
-                this._maxCycleViolations = 500
-                this._balanceLessonCounts(bestSchedule, 28)
-                this._improveCycleOrder(bestSchedule, 28, 500)
-                this._balanceLessonCounts(bestSchedule, 28)
-                this._maxCycleViolations = 0
-            }
-            // Cross-day swaps to move groups closer to stable positions
-            this._improveCycleWithCrossDaySwaps(bestSchedule, 28)
-            // Final pass: LRU reordering to minimize cycle violations
-            this._reorderByCycleFairness(bestSchedule)
-            return bestSchedule
-        }
-
-        return []
+        this.achievedDayRule = 28
+        this._balanceLessonCounts(bestSchedule, 28)
+        this._balanceLessonCounts(bestSchedule, 28)
+        this._balanceLessonCounts(bestSchedule, 28)
+        return bestSchedule
     }
 }
 

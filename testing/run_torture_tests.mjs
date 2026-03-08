@@ -245,7 +245,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
     for (const d of combined) for (const l of d.lessons) if (l.group !== 'MU') counts[l.group]++;
     const vals = Object.values(counts);
     const spread = Math.max(...vals) - Math.min(...vals);
-    if (spread > 2) issues.push(`BALANCE:${spread}`);
+    if (spread > 1) issues.push(`BALANCE:${spread}`);
 
     const status = issues.length === 0 ? 'PASS' : 'FAIL';
     if (status === 'FAIL') fail++;
