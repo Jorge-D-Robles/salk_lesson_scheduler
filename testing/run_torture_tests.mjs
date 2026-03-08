@@ -153,6 +153,9 @@ function runChunkedTest(desc, startCycle, daysOff) {
     let combined = [];
     let chunkStart = '2025-09-02';
     let chunkCycle = startCycle;
+    // Track cumulative lesson counts across all chunks for accurate balance
+    const cumulativeCounts = {};
+    allGroups.forEach(g => cumulativeCounts[g] = 0);
 
     while (true) {
         const startDate = new Date(chunkStart + 'T00:00:00');
@@ -163,6 +166,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
         if (thisChunkWeeks <= 0) break;
 
         let history = null;
+        let counts = null;
         if (combined.length > 0) {
             const cutoff = new Date(startDate);
             cutoff.setDate(cutoff.getDate() - 4 * 7);
@@ -172,14 +176,18 @@ function runChunkedTest(desc, startCycle, daysOff) {
                     history.push({ group: l.group, period: l.period, date: fmt(d.date) });
                 }
             }
+            counts = { ...cumulativeCounts };
         }
 
-        const builder = new ScheduleBuilder(chunkStart, chunkCycle, daysOff, thisChunkWeeks, history);
+        const builder = new ScheduleBuilder(chunkStart, chunkCycle, daysOff, thisChunkWeeks, history, counts);
         const schedule = builder.buildSchedule();
 
         for (const d of schedule) {
             if (!combined.some(e => e.date.toDateString() === d.date.toDateString())) {
                 combined.push(d);
+                for (const l of d.lessons) {
+                    if (l.group !== 'MU') cumulativeCounts[l.group]++;
+                }
             }
         }
 
@@ -195,14 +203,14 @@ function runChunkedTest(desc, startCycle, daysOff) {
     const issues = [];
     const ONE_DAY_MS = 86400000;
 
-    // 14-day calendar floor rule
+    // 28-day calendar spacing rule
     const lastSeen = {};
     for (const d of combined) {
         for (const l of d.lessons) {
             if (l.group === 'MU') continue;
             if (!lastSeen[l.group]) lastSeen[l.group] = {};
             const last = lastSeen[l.group][l.period];
-            if (last && (d.date - last) / ONE_DAY_MS < 14) issues.push(`14DAY:${l.group} ${l.period}`);
+            if (last && (d.date - last) / ONE_DAY_MS < 28) issues.push(`28DAY:${l.group} ${l.period}`);
             lastSeen[l.group][l.period] = d.date;
         }
     }

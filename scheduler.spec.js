@@ -1,44 +1,5 @@
 /**
- * Assert no rotation violations: a group must not repeat a period before
- * using all 6 unique periods {1,2,3,4,7,8}.
- * @param {Array<ScheduleEntry>} schedule The generated schedule to test.
- * @param {Object} [initialRotation={}] Optional initial rotation state (group -> Set of used periods).
- */
-const assertNoRotationViolations = (schedule, maxViolations = 20) => {
-    const DAY1 = [1, 4, 7, 8]
-    const DAY2 = [1, 2, 3, 7, 8]
-    const usedPeriods = {}
-    let violations = 0
-
-    schedule.forEach((dayEntry) => {
-        const dayType = dayEntry.dayCycle
-        const dayPeriods = dayType === 1 ? DAY1 : DAY2
-
-        dayEntry.lessons.forEach((lesson) => {
-            const { group, period } = lesson
-            if (group.startsWith("MU")) return
-            const periodNum = parseInt(period.replace('Pd ', ''), 10)
-
-            if (!usedPeriods[group]) usedPeriods[group] = { 1: new Set(), 2: new Set() }
-
-            if (usedPeriods[group][dayType].has(periodNum)) violations++
-
-            usedPeriods[group][dayType].add(periodNum)
-            if (dayPeriods.every(p => usedPeriods[group][dayType].has(p))) {
-                usedPeriods[group][dayType] = new Set()
-            }
-        })
-    })
-
-    expect(violations).toBeLessThanOrEqual(
-        maxViolations,
-        `Too many rotation violations: ${violations} (max allowed: ${maxViolations}). ` +
-        `The 4th-tier fallback may drop rotation constraints on constrained days.`
-    )
-}
-
-/**
- * Secondary sanity check: no group/period pair within minDays calendar days.
+ * Assert no group/period pair within minDays calendar days.
  * @param {Array<ScheduleEntry>} schedule The generated schedule to test.
  * @param {Object} [initialAssignments={}] An optional pre-filled assignment history to check against.
  * @param {number} [minDays=14] Minimum days between same group/period.
@@ -331,8 +292,7 @@ describe("ScheduleBuilder", () => {
                         null
                     )
                     const schedule = scheduleBuilder.buildSchedule()
-                    assertNoRotationViolations(schedule)
-                    assertNo28DayConflicts(schedule, {}, 14)
+                    assertNo28DayConflicts(schedule, {}, 28)
                     assertNoWeeklyConflicts(schedule)
                     assertBalancedUsage(schedule)
                     assertAllGroupsAppearBetweenRepetitions(
@@ -384,8 +344,7 @@ describe("ScheduleBuilder", () => {
                         null
                     )
                     const schedule = scheduleBuilder.buildSchedule()
-                    assertNoRotationViolations(schedule)
-                    assertNo28DayConflicts(schedule, {}, 14)
+                    assertNo28DayConflicts(schedule, {}, 28)
                     assertNoWeeklyConflicts(schedule)
                     assertBalancedUsage(schedule)
                     assertAllGroupsAppearBetweenRepetitions(
@@ -572,11 +531,10 @@ describe("ScheduleBuilder", () => {
                             testCase.history
                         )
                         const schedule = scheduleBuilder.buildSchedule()
-                        assertNoRotationViolations(schedule)
                         assertNo28DayConflicts(
                             schedule,
                             scheduleBuilder.initialPeriodAssignments,
-                            14
+                            28
                         )
                         assertNoWeeklyConflicts(schedule)
                         assertBalancedUsage(schedule)
@@ -621,8 +579,7 @@ describe("ScheduleBuilder", () => {
                 const dateString = new Date(day + "T00:00:00").toDateString()
                 expect(scheduledDates.includes(dateString)).toBe(false)
             })
-            assertNoRotationViolations(schedule)
-            assertNo28DayConflicts(schedule, {}, 14)
+            assertNo28DayConflicts(schedule, {}, 28)
             assertNoWeeklyConflicts(schedule)
             assertBalancedUsage(schedule)
             assertAllGroupsAppearBetweenRepetitions(
@@ -644,8 +601,7 @@ describe("ScheduleBuilder", () => {
             const schedule = scheduleBuilder.buildSchedule()
             assertNoMUClustering(schedule)
             assertNoWeeklyConflicts(schedule)
-            assertNoRotationViolations(schedule)
-            assertNo28DayConflicts(schedule, {}, 14)
+            assertNo28DayConflicts(schedule, {}, 28)
             assertBalancedUsage(schedule)
             assertAllGroupsAppearBetweenRepetitions(
                 schedule,

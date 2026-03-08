@@ -187,28 +187,31 @@ function findRotationViolations(dayIndex, group, period, excludeDayIndices) {
     if (!currentSchedule || group.startsWith('MU')) return []
     const DAY1 = [1, 4, 7, 8]
     const DAY2 = [1, 2, 3, 7, 8]
+    const ALL_PERIODS = [1, 2, 3, 4, 7, 8]
     const periodNum = parseInt(period.replace('Pd ', ''), 10)
-    const targetDayType = currentSchedule[dayIndex].dayCycle
-    const dayPeriods = targetDayType === 1 ? DAY1 : DAY2
+    const dayPeriods = currentSchedule[dayIndex].dayCycle === 1 ? DAY1 : DAY2
 
-    // Reconstruct per-day-type rotation state for this group up to dayIndex
-    const usedPeriods = { 1: new Set(), 2: new Set() }
+    // Reconstruct global rotation state for this group up to dayIndex
+    let usedPeriods = new Set()
     for (let i = 0; i < dayIndex; i++) {
         if (excludeDayIndices && excludeDayIndices.has(i)) continue
-        const dt = currentSchedule[i].dayCycle
-        const dp = dt === 1 ? DAY1 : DAY2
         for (const lesson of currentSchedule[i].lessons) {
             if (lesson.group !== group) continue
             const p = parseInt(lesson.period.replace('Pd ', ''), 10)
-            usedPeriods[dt].add(p)
-            if (dp.every(pp => usedPeriods[dt].has(pp))) {
-                usedPeriods[dt] = new Set()
+            usedPeriods.add(p)
+            if (ALL_PERIODS.every(pp => usedPeriods.has(pp))) {
+                usedPeriods = new Set()
             }
         }
     }
 
-    if (usedPeriods[targetDayType].has(periodNum)) {
-        return [{ type: 'rotation', group, period, message: `${period} already used in current Day ${targetDayType} rotation cycle` }]
+    if (usedPeriods.has(periodNum)) {
+        // Day-type exemption: not a violation if all periods on this
+        // day type are already used (group can't progress rotation)
+        const allDayPeriodsUsed = dayPeriods.every(p => usedPeriods.has(p))
+        if (!allDayPeriodsUsed) {
+            return [{ type: 'rotation', group, period, message: `${period} already used in current rotation cycle` }]
+        }
     }
     return []
 }
@@ -1037,12 +1040,12 @@ function computeCellIssues(schedule) {
     const issues = new Map()
     const DAY1 = [1, 4, 7, 8]
     const DAY2 = [1, 2, 3, 7, 8]
+    const ALL_PERIODS = [1, 2, 3, 4, 7, 8]
     const usedPeriods = {}
 
     for (let dayIndex = 0; dayIndex < schedule.length; dayIndex++) {
         const entry = schedule[dayIndex]
-        const dayType = entry.dayCycle
-        const dayPeriods = dayType === 1 ? DAY1 : DAY2
+        const dayPeriods = entry.dayCycle === 1 ? DAY1 : DAY2
 
         for (let lessonIndex = 0; lessonIndex < entry.lessons.length; lessonIndex++) {
             const lesson = entry.lessons[lessonIndex]
@@ -1050,14 +1053,18 @@ function computeCellIssues(schedule) {
             const periodNum = parseInt(lesson.period.replace('Pd ', ''), 10)
             const cellIssues = []
 
-            if (!usedPeriods[lesson.group]) usedPeriods[lesson.group] = { 1: new Set(), 2: new Set() }
-            if (usedPeriods[lesson.group][dayType].has(periodNum)) {
-                cellIssues.push(`${lesson.period} repeated before completing full Day ${dayType} period rotation`)
+            if (!usedPeriods[lesson.group]) usedPeriods[lesson.group] = new Set()
+            if (usedPeriods[lesson.group].has(periodNum)) {
+                // Day-type exemption: not a violation if all day-type periods are used
+                const allDayPeriodsUsed = dayPeriods.every(p => usedPeriods[lesson.group].has(p))
+                if (!allDayPeriodsUsed) {
+                    cellIssues.push(`${lesson.period} repeated before completing full period rotation`)
+                }
             }
 
-            usedPeriods[lesson.group][dayType].add(periodNum)
-            if (dayPeriods.every(p => usedPeriods[lesson.group][dayType].has(p))) {
-                usedPeriods[lesson.group][dayType] = new Set()
+            usedPeriods[lesson.group].add(periodNum)
+            if (ALL_PERIODS.every(p => usedPeriods[lesson.group].has(p))) {
+                usedPeriods[lesson.group] = new Set()
             }
 
             if (cellIssues.length > 0) {

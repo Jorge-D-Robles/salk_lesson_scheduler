@@ -53,7 +53,7 @@ export function allFridaysInRange(s, e) {
  *
  * Checks: slot fill, 21-day rule, weekly uniqueness, MU clustering, balance, cycle fairness.
  */
-export function runChecks(schedule, builder, { maxCycleViolations = 500, maxRotationViolations = 20 } = {}) {
+export function runChecks(schedule, builder, { maxCycleViolations = 500 } = {}) {
     const issues = [];
     if (schedule.length === 0) return ['EMPTY'];
 
@@ -64,36 +64,14 @@ export function runChecks(schedule, builder, { maxCycleViolations = 500, maxRota
             issues.push(`SLOTS:${d.date.toDateString()} (${d.lessons.length}!=${expected})`);
     });
 
-    // Per-day-type period rotation (bounded violations allowed for late-week fallback)
-    const DAY1_P = [1, 4, 7, 8];
-    const DAY2_P = [1, 2, 3, 7, 8];
-    const rotationState = {};
-    let rotationViolationCount = 0;
-    schedule.forEach(d => {
-        const dayType = d.dayCycle;
-        const dayPeriods = dayType === 1 ? DAY1_P : DAY2_P;
-        d.lessons.forEach(l => {
-            if (l.group === 'MU') return;
-            const periodNum = parseInt(l.period.replace('Pd ', ''), 10);
-            if (!rotationState[l.group]) rotationState[l.group] = { 1: new Set(), 2: new Set() };
-            if (rotationState[l.group][dayType].has(periodNum))
-                rotationViolationCount++;
-            rotationState[l.group][dayType].add(periodNum);
-            if (dayPeriods.every(p => rotationState[l.group][dayType].has(p)))
-                rotationState[l.group][dayType] = new Set();
-        });
-    });
-    if (rotationViolationCount > maxRotationViolations)
-        issues.push(`ROTATION:${rotationViolationCount}>${maxRotationViolations}`);
-
-    // 14-day rule (secondary calendar sanity check, matching solver floor)
+    // 28-day calendar spacing: same group+period not within 28 calendar days
     const lastSeen = {};
     schedule.forEach(d => d.lessons.forEach(l => {
         if (l.group === 'MU') return;
         if (!lastSeen[l.group]) lastSeen[l.group] = {};
         const last = lastSeen[l.group][l.period];
-        if (last && (d.date - last) / ONE_DAY_MS < 14)
-            issues.push(`14DAY:${l.group} ${l.period}`);
+        if (last && (d.date - last) / ONE_DAY_MS < 28)
+            issues.push(`28DAY:${l.group} ${l.period}`);
         lastSeen[l.group][l.period] = d.date;
     }));
 

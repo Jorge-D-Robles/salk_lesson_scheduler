@@ -43,24 +43,34 @@ There is no build step, linter, or package manager. The app runs as a static sit
 
 ### Scheduling Algorithm
 
-`ScheduleBuilder` uses a constructive cycle-based approach with day-level MRV backtracking and **per-day-type period rotation** as the primary constraint.
+`ScheduleBuilder` uses a constructive cycle-based approach with **week-level MRV backtracking** and a **28-day calendar spacing rule** as the primary period constraint.
 
-For each day, it builds a candidate list prioritizing pending groups (those not yet seen in the current cycle), tries pending-only first with MU fill to preserve cycle order, then falls back to including next-cycle groups. Within each day, periods are assigned using MRV (Minimum Remaining Values) backtracking. Lessons are sorted by period number ascending for display.
+**Construction** (`_constructSchedule`): Groups days by calendar week and solves all slots in each week simultaneously using `_solveWeekAssignment`. This week-level approach prevents the greedy day-by-day solver from exhausting scarce shared-period groups. The solver has a 4-tier fallback: (1) pending groups only, (2) pending + next-cycle, (3) all groups ignoring cycle, (4) all groups with reduced 21-day floor. Multi-trial with 10+ position offsets picks the best construction by combined cycle violations + balance spread.
 
-Available periods depend on the day cycle: Day 1 (odd) = `DAY1_PERIODS` [1, 4, 7, 8], Day 2 (even) = `DAY2_PERIODS` [1, 2, 3, 7, 8].
+**Post-processing pipeline** (`buildSchedule`):
+1. `_repairViolations`: targeted swaps to fix any remaining 28-day violations
+2. `_improveCycleOrder`: within-day swaps to reduce cycle violations (Phase 1 targets 480 for headroom)
+3. `_balanceLessonCounts`: cycle-aware balance swaps + MU fill/replace strategies
+4. Interleaved cycle improvement + balance passes
 
-**Per-day-type period rotation**: Each group tracks TWO rotation sets — one for Day 1 periods and one for Day 2 periods. A group can only use period P on day type T if P is NOT in its Day-T used set. Once all periods for that day type are used, the set resets. A secondary 14-day calendar floor prevents same group/period pairs from appearing within 14 calendar days regardless of day type. The solver has a 4-tier fallback: (1) pending groups only, (2) pending + next-cycle, (3) all groups ignoring cycle, (4) all groups ignoring both cycle and rotation constraints.
+Available periods depend on the day cycle: Day 1 (odd) = `DAY1_PERIODS` [1, 4, 7, 8], Day 2 (even) = `DAY2_PERIODS` [1, 2, 3, 7, 8]. **Period numbers are global** — period 1 is the same period regardless of whether it falls on a Day 1 or Day 2.
+
+**Chunked scheduling**: For multi-chunk scheduling (building 8-week blocks with history import), the constructor accepts an optional `cumulativeCounts` parameter with accurate accumulated lesson counts per group. This is critical for cross-chunk balance — 4-week period history alone has poor rank correlation with true global balance. When cumulative counts are provided, `_getAdjustedCounts()` uses them directly; otherwise it amplifies 4-week history deviation by 2x.
 
 ### Key Constraints (priority order)
 
-1. **Per-day-type period rotation** (highest priority): A group must use all periods available on a day type before repeating any on that day type (Day 1: 4 periods, Day 2: 5 periods). A 14-day calendar floor also applies across day types.
+1. **28-day calendar spacing** (highest priority): No group can have the same period number within 28 calendar days. Period numbers are global across day types.
 2. **Weekly uniqueness**: No group scheduled more than once per calendar week.
 3. **MU limit**: At most 1 Make-Up (MU) slot per day.
-4. **Balance**: Max-min lesson count difference across all groups ≤ 2. Post-processing swap validation uses a 14-day calendar floor.
+4. **Balance**: Max-min lesson count difference across all groups ≤ 2. Post-processing swap validation uses the 28-day floor.
 5. **Cycle fairness** (best effort): All 22 groups should appear before any group repeats. Violations scale with schedule length (≤500 for 40+ week schedules).
 
 ### Test Helper Functions
 
-`scheduler.spec.js` uses assertion helpers: `assertNoRotationViolations` (bounded, max 20), `assertNo28DayConflicts` (secondary 14-day calendar floor check), `assertNoWeeklyConflicts`, `assertNoMUClustering`, `assertBalancedUsage`, `assertAllGroupsAppearBetweenRepetitions` (bounded, max 500).
+`scheduler.spec.js` uses assertion helpers: `assertNo28DayConflicts` (28-day calendar spacing check), `assertNoWeeklyConflicts`, `assertNoMUClustering`, `assertBalancedUsage`, `assertAllGroupsAppearBetweenRepetitions` (bounded, max 500).
 
 `testing/helpers.mjs` provides CLI equivalents: `loadScheduler`, `runChecks`, `weekdaysInRange`, `allMondaysInRange`, `allFridaysInRange`.
+
+### Algorithm Attempts Log
+
+**`ALGORITHM_ATTEMPTS.md`** documents all algorithm approaches tried, why they failed or succeeded, and known remaining issues. **Always read this file before attempting a new algorithm change** to avoid repeating failed approaches. Update it whenever you try something that doesn't work.

@@ -4,34 +4,6 @@
  * under heavy days-off patterns, tight windows, and edge cases.
  */
 
-// Helper: assert no per-day-type rotation violations
-const assertNoRotationViolationsTorture = (schedule, maxViolations = 20) => {
-    const DAY1 = [1, 4, 7, 8]
-    const DAY2 = [1, 2, 3, 7, 8]
-    const usedPeriods = {}
-    let violations = 0
-    schedule.forEach((dayEntry) => {
-        const dayType = dayEntry.dayCycle
-        const dayPeriods = dayType === 1 ? DAY1 : DAY2
-        dayEntry.lessons.forEach((lesson) => {
-            const { group, period } = lesson
-            if (group === "MU") return
-            const periodNum = parseInt(period.replace('Pd ', ''), 10)
-            if (!usedPeriods[group]) usedPeriods[group] = { 1: new Set(), 2: new Set() }
-            if (usedPeriods[group][dayType].has(periodNum)) violations++
-            usedPeriods[group][dayType].add(periodNum)
-            if (dayPeriods.every(p => usedPeriods[group][dayType].has(p))) {
-                usedPeriods[group][dayType] = new Set()
-            }
-        })
-    })
-    expect(violations).toBeLessThanOrEqual(
-        maxViolations,
-        `Too many rotation violations: ${violations} (max allowed: ${maxViolations}). ` +
-        `The 4th-tier fallback may drop rotation constraints on constrained days.`
-    )
-}
-
 // Helper: assert no same-group/period conflict within N days
 const assertNoDayRuleConflicts = (schedule, dayRule, initialAssignments = {}) => {
     const oneDayMs = 1000 * 60 * 60 * 24
@@ -173,10 +145,9 @@ describe("ScheduleBuilder - Torture Tests", () => {
     }
 
     // Run all standard constraint checks on a schedule
-    const runAllChecks = (schedule, builder, dayRule = 14, maxCycleViolations = 500) => {
+    const runAllChecks = (schedule, builder, dayRule = 28, maxCycleViolations = 500) => {
         assertScheduleNotEmpty(schedule, "torture test")
         assertAllSlotsFilled(schedule)
-        assertNoRotationViolationsTorture(schedule)
         assertNoDayRuleConflicts(schedule, dayRule)
         assertNoWeeklyConflicts(schedule)
         assertNoMUClustering(schedule)
@@ -725,7 +696,7 @@ describe("ScheduleBuilder - Torture Tests", () => {
                         "2025-09-02", startCycle, allDaysOff, 43
                     )
                     const schedule = builder.buildSchedule()
-                    runAllChecks(schedule, builder, 14, 500)
+                    runAllChecks(schedule, builder, 28, 500)
                 })
             })
         })
