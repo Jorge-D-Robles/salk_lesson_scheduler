@@ -90,11 +90,49 @@ This document tracks algorithm approaches tried, why they failed or succeeded, a
 - Fixed by adding `cumulativeCounts` parameter. The chunked test now tracks and passes accumulated lesson counts alongside the 4-week period history.
 - The `_getAdjustedCounts()` helper handles both modes (cumulative direct vs. amplified history).
 
+### 14. Day-Stability in Week Solver (Successful — Cycle Reduction)
+**What**: Track which physical day-of-week each group was on in the previous week (`prevDayOfWeek`). In the week solver's group sort, add day-stability as the primary criterion (above position-stability): prefer groups that were on the same physical day last week for each slot.
+**Result**: Reduced cycle violations by ~30% (152→107 for clean 16-week schedule). Groups staying on the same day went from 11-16 to 20 out of 22 per week boundary.
+**Why it works**: Cycle violations are caused by groups changing their position in the flat sequence between weeks. Position changes are primarily caused by groups moving to different days. By keeping groups on the same day, their flat-sequence positions remain stable, minimizing violations.
+**Trade-off**: Hard day-stability causes BALANCE issues for Levittown tests with heavy absences (10+ sick days). Fixed with dual-trial approach: try construction both with and without day-stability, pick the best result based on combined violation + spread score.
+**Key insight**: Remaining ~107 violations are STRUCTURAL — caused by alternating day types (D1 has 4 slots, D2 has 5). When a day switches from D2→D1, groups systematically shift by -1 position, creating unavoidable violations. Zero violations is not achievable with the current day-type structure.
+
+### 15. Cross-Day Group Swaps Within Same Week (Successful — Cycle Reduction)
+**What**: Post-processing pass that tries swapping two groups' slot assignments between different days WITHIN the same week. Groups exchange periods and days. Safe for weekly uniqueness since each group still appears once per week.
+**Result**: Reduces violations by ~22 (from 129 to 107 for clean 16-week case).
+**Why it works**: Targeted repositioning of groups that ended up on suboptimal days. The 28-day constraint is checked for both groups at their new positions.
+**Note**: Unlike Attempt #4 (cross-day swaps between different weeks, which broke weekly uniqueness), these swaps are strictly within the same week and are safe.
+
+### 16. LRU Within-Day Reordering (Successful — Minor Cycle Reduction)
+**What**: Final reordering pass that sorts each day's non-MU lessons by "last seen position" ascending (most stale groups first, MU at end). Processes days sequentially, updating lastSeen after each.
+**Result**: Reduces violations by ~7 (from 114 to 107). Modest but consistent improvement.
+**Why it works**: Directly maximizes gaps between consecutive appearances of the same group. Equivalent to optimal within-day ordering for minimizing current-day violations.
+
+### 17. Soft Day-Stability (Combined Score) (Failed)
+**What**: Instead of hard day-stability priority, use a combined score: `positionDistance + dayBonus` where dayBonus is -5 for same-day match. This was intended to be a softer preference.
+**Result**: 21 failures (vs 3 for hard day-stability). MUCH worse than either pure approach.
+**Why it failed**: The combined score neither properly optimizes position stability nor day stability. The -5 bonus corrupts the position-distance ranking without being strong enough to enforce day matching.
+**Lesson**: Don't mix apples and oranges in sort scores. Either make day-stability a separate priority level or don't use it at all.
+
+### 18. Cycle-Sorted prevPositions (Failed)
+**What**: Changed prevPositions to record the cycle-order position (sorted by lastGlobalPos) instead of period-sorted position. This was intended to align prevPositions with the flat sequence used for cycle analysis.
+**Result**: Worse violations (161 vs 137). The solver's slot indices are in day+period order, so comparing with cycle-order positions is meaningless (different coordinate systems).
+**Lesson**: prevPositions must use the same coordinate system as the solver's slot indexing (day+period order), not the cycle analysis ordering.
+
+## Structural Cycle Violation Analysis
+- With 22 groups and alternating D1/D2 day types, zero cycle violations is **mathematically impossible**
+- D1 days have 4 slots, D2 days have 5. Week types alternate: (4,5,4,5,4)=22 and (5,4,5,4,5)=23
+- When week type changes, groups on affected days shift by ±1 position in the flat sequence
+- A -1 shift means the gap between consecutive appearances is 21 instead of 22, missing 1 group → violation
+- ~80-100 violations per 16-week schedule are structural; remaining ~7-30 are fixable with ordering
+
 ## Rules for Future Attempts
 1. Never sort lessons by period within `_constructSchedule` — display sorting is UI-layer only
-2. Cross-day swaps risk WEEKLY violations — avoid unless the check is bulletproof
+2. Cross-day swaps WITHIN the same week are safe for weekly uniqueness; cross-WEEK swaps are NOT
 3. Always do full violation recount, never incremental
 4. The cycle-aware balancer is the right approach — don't go back to unconstrained balancing
 5. Test with BOTH `node testing/run_spec_tests.mjs` AND `node testing/run_torture_tests.mjs`
 6. For chunked scheduling, pass `cumulativeCounts` to `ScheduleBuilder` for accurate balance
 7. Don't try to fix bad data with clever algorithms — fix the data instead
+8. Day-stability must use dual-trial approach (with/without) to handle heavy-absence schedules
+9. Don't combine different metrics into a single sort score — use separate priority levels
