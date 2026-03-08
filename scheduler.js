@@ -7,7 +7,6 @@
 // --- Constants for Scheduling Rules ---
 const DAY1_PERIODS = [1, 4, 7, 8]
 const DAY2_PERIODS = [1, 2, 3, 7, 8]
-const ALL_UNIQUE_PERIODS = [1, 2, 3, 4, 7, 8]
 const REQUIRED_UNIQUE_GROUPS = 22
 
 class ScheduleEntry {
@@ -796,11 +795,6 @@ class ScheduleBuilder {
 
 
     /**
-     * Check if assigning a group to a period on a date would conflict with
-     * a historical period assignment (from schedule history in chunked mode).
-     * @private
-     */
-    /**
      * Compute balance-adjusted counts incorporating historical data.
      * When cumulative counts are available (accurate), use them directly.
      * When only 4-week history is available, amplify deviation from mean.
@@ -827,6 +821,7 @@ class ScheduleBuilder {
         return counts
     }
 
+    /** Check if a group+period assignment would conflict with schedule history. @private */
     _hasHistoricalConflict(group, periodNum, date, dayRule) {
         const oneDayMs = 86400000
         const histDate = this.initialPeriodAssignments?.[group]?.[periodNum]
@@ -1078,15 +1073,10 @@ class ScheduleBuilder {
                                 if (!check28Day(other.group, p1, schedule[violationDay].date, skipSet)) continue
                             }
 
-                            // Apply and verify
+                            // Apply swap (constraints already verified above)
                             const g1 = lesson.group
                             lesson.group = other.group
                             other.group = g1
-                            if (this._runningBalanceViolations(schedule) < this._runningBalanceViolations(schedule)) {
-                                improved = true
-                                break
-                            }
-                            // Just accept within-week swaps that don't violate constraints
                             improved = true
                             break
                         }
