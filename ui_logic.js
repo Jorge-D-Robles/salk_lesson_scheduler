@@ -1017,6 +1017,9 @@ function displaySchedule(schedule) {
     fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
 
     schedule.forEach((entry, index) => {
+        // Sort lessons by period number for display
+        entry.lessons.sort((a, b) => parseInt(a.period.replace("Pd ", ""), 10) - parseInt(b.period.replace("Pd ", ""), 10))
+
         const entryWeekIdentifier = getWeekIdentifier(entry.date)
         if (entryWeekIdentifier !== currentWeekIdentifier) {
             const spacerRow = document.createElement("tr")
