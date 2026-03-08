@@ -235,7 +235,7 @@ class ScheduleBuilder {
      * Groups are sorted by staleness (longest gap since last using each period).
      * @private
      */
-    _solveDayAssignment(periods, candidateGroups, date, weekId, weeklyAssignments, periodAssignments, calendarFloor) {
+    _solveDayAssignment(periods, candidateGroups, date, weekId, weeklyAssignments, periodAssignments, calendarFloor, runningCounts) {
         const numPeriods = periods.length
         const oneDayMs = 86400000
 
@@ -246,16 +246,21 @@ class ScheduleBuilder {
                 if (weeklyAssignments.get(weekId)?.has(group)) continue
                 if (calendarFloor > 0) {
                     const lastDate = periodAssignments[group]?.[period]
-                    if (lastDate && (date - lastDate) / oneDayMs < calendarFloor) continue
+                    if (lastDate && Math.round((date - lastDate) / oneDayMs) < calendarFloor) continue
                 }
                 valid.push(group)
             }
 
-            // Staleness sort: prefer groups with longest gap since last using
-            // this period (naturally promotes period variety). MU always last.
+            // Sort candidates. When runningCounts provided, prefer lower-count
+            // groups first (for running balance). Otherwise staleness sort.
             valid.sort((a, b) => {
                 if (a === "MU") return 1
                 if (b === "MU") return -1
+                if (runningCounts) {
+                    const ca = runningCounts[a] || 0
+                    const cb = runningCounts[b] || 0
+                    if (ca !== cb) return ca - cb
+                }
                 const lastA = periodAssignments[a]?.[period]?.getTime() || 0
                 const lastB = periodAssignments[b]?.[period]?.getTime() || 0
                 if (lastA !== lastB) return lastA - lastB
@@ -322,7 +327,7 @@ class ScheduleBuilder {
      * recur within 7 days.
      * @private
      */
-    _solveWeekAssignment(weekDays, candidateGroups, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek) {
+    _solveWeekAssignment(weekDays, candidateGroups, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts) {
         const oneDayMs = 86400000
 
         // Build flat slot list from all days in the week
@@ -352,7 +357,7 @@ class ScheduleBuilder {
                 if (group === "MU") { valid.push(group); continue }
                 if (calendarFloor > 0) {
                     const lastDate = periodAssignments[group]?.[slot.period]
-                    if (lastDate && (slot.date - lastDate) / oneDayMs < calendarFloor) continue
+                    if (lastDate && Math.round((slot.date - lastDate) / oneDayMs) < calendarFloor) continue
                 }
                 valid.push(group)
             }
@@ -398,19 +403,29 @@ class ScheduleBuilder {
         // Early out: if any slot has 0 valid groups, no solution exists
         if (validGroupsPerSlot.some(v => v.length === 0)) return null
 
+        // Pre-compute slots per day and last-slot index for balance checking
+        const slotsPerDay = new Array(numDays).fill(0)
+        for (const s of slots) slotsPerDay[s.dayIdx]++
+
         const assignment = new Array(numSlots).fill(null)
         const usedGroups = new Set()
         const muPerDay = new Array(numDays).fill(0)
+        const assignedPerDay = new Array(numDays).fill(0)
         let backtracks = 0
-        const BACKTRACK_LIMIT = 50000
+        const BACKTRACK_LIMIT = 80000
+
+        // All groups for balance checking
+        const allGroups = runningCounts ? Object.keys(runningCounts) : null
 
         const solve = (depth) => {
             if (depth >= numSlots) return true
             if (++backtracks > BACKTRACK_LIMIT) return false
 
-            // MRV: pick unassigned slot with fewest valid remaining candidates
+            // Day-first MRV: process earliest day's slots first (for running
+            // balance), then within each day pick the most constrained slot.
             let bestIdx = -1
             let bestCount = Infinity
+            let bestDayIdx = Infinity
             for (let i = 0; i < numSlots; i++) {
                 if (assignment[i] !== null) continue
                 let count = 0
@@ -422,9 +437,11 @@ class ScheduleBuilder {
                     }
                 }
                 if (count === 0) return false  // forward check: dead end
-                if (count < bestCount) {
+                const di = slots[i].dayIdx
+                if (di < bestDayIdx || (di === bestDayIdx && count < bestCount)) {
                     bestCount = count
                     bestIdx = i
+                    bestDayIdx = di
                 }
             }
 
@@ -436,16 +453,50 @@ class ScheduleBuilder {
                     if (muPerDay[slot.dayIdx] >= 1) continue
                     assignment[idx] = group
                     muPerDay[slot.dayIdx]++
-                    if (solve(depth + 1)) return true
-                    if (backtracks > BACKTRACK_LIMIT) return false
+                    assignedPerDay[slot.dayIdx]++
+
+                    // Balance check at day boundary
+                    let balanceOk = true
+                    if (runningCounts && assignedPerDay[slot.dayIdx] === slotsPerDay[slot.dayIdx]) {
+                        const tempCounts = {}
+                        for (const g of allGroups) tempCounts[g] = runningCounts[g]
+                        for (let i = 0; i < numSlots; i++) {
+                            if (assignment[i] && assignment[i] !== "MU" && slots[i].dayIdx <= slot.dayIdx) {
+                                tempCounts[assignment[i]]++
+                            }
+                        }
+                        const vals = Object.values(tempCounts)
+                        if (Math.max(...vals) - Math.min(...vals) > 1) balanceOk = false
+                    }
+
+                    if (balanceOk && solve(depth + 1)) return true
+                    if (backtracks > BACKTRACK_LIMIT) { assignedPerDay[slot.dayIdx]--; muPerDay[slot.dayIdx]--; assignment[idx] = null; return false }
+                    assignedPerDay[slot.dayIdx]--
                     muPerDay[slot.dayIdx]--
                     assignment[idx] = null
                 } else {
                     if (usedGroups.has(group)) continue
                     assignment[idx] = group
                     usedGroups.add(group)
-                    if (solve(depth + 1)) return true
-                    if (backtracks > BACKTRACK_LIMIT) return false
+                    assignedPerDay[slot.dayIdx]++
+
+                    // Balance check at day boundary
+                    let balanceOk = true
+                    if (runningCounts && assignedPerDay[slot.dayIdx] === slotsPerDay[slot.dayIdx]) {
+                        const tempCounts = {}
+                        for (const g of allGroups) tempCounts[g] = runningCounts[g]
+                        for (let i = 0; i < numSlots; i++) {
+                            if (assignment[i] && assignment[i] !== "MU" && slots[i].dayIdx <= slot.dayIdx) {
+                                tempCounts[assignment[i]]++
+                            }
+                        }
+                        const vals = Object.values(tempCounts)
+                        if (Math.max(...vals) - Math.min(...vals) > 1) balanceOk = false
+                    }
+
+                    if (balanceOk && solve(depth + 1)) return true
+                    if (backtracks > BACKTRACK_LIMIT) { assignedPerDay[slot.dayIdx]--; usedGroups.delete(group); assignment[idx] = null; return false }
+                    assignedPerDay[slot.dayIdx]--
                     usedGroups.delete(group)
                     assignment[idx] = null
                 }
@@ -541,44 +592,46 @@ class ScheduleBuilder {
                 .filter(g => !weeklyUsed.has(g))
                 .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
 
-            // Compute balance counts for history mode (chunked scheduling)
-            let balanceCounts = null
-            if (this.historicalLessonCounts) {
-                balanceCounts = {}
-                for (const g of this.LESSON_GROUPS) {
-                    balanceCounts[g] = (this.historicalLessonCounts[g] || 0) + runningCounts[g]
+            // Compute balance counts for all modes to enforce running balance
+            const balanceCounts = {}
+            for (const g of this.LESSON_GROUPS) {
+                balanceCounts[g] = (this.historicalLessonCounts?.[g] || 0) + runningCounts[g]
+            }
+
+            const allAvailable = this.LESSON_GROUPS
+                .filter(g => !weeklyUsed.has(g))
+                .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
+
+            // Build candidate sets for each tier
+            const candidateSets = [
+                [...pendingAll, "MU"],
+                [...pendingAll, ...nextAll, "MU"],
+                [...allAvailable, "MU"],
+            ]
+
+            // Try ALL tiers with balance constraint first
+            let result = null
+            for (const candidates of candidateSets) {
+                result = this._solveWeekAssignment(
+                    weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts
+                )
+                if (result) break
+            }
+
+            // Then try all tiers WITHOUT balance constraint
+            if (!result) {
+                for (const candidates of candidateSets) {
+                    result = this._solveWeekAssignment(
+                        weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek
+                    )
+                    if (result) break
                 }
-            }
-
-            // Tier 1: pending only
-            let result = this._solveWeekAssignment(
-                weekDays, [...pendingAll, "MU"], periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek
-            )
-
-            // Tier 2: add next-cycle groups
-            if (!result) {
-                result = this._solveWeekAssignment(
-                    weekDays, [...pendingAll, ...nextAll, "MU"], periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek
-                )
-            }
-
-            // Tier 3: all groups ignoring cycle
-            if (!result) {
-                const available = this.LESSON_GROUPS
-                    .filter(g => !weeklyUsed.has(g))
-                    .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
-                result = this._solveWeekAssignment(
-                    weekDays, [...available, "MU"], periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek
-                )
             }
 
             // Tier 4: reduced floor (21-day minimum spacing)
             if (!result) {
-                const available = this.LESSON_GROUPS
-                    .filter(g => !weeklyUsed.has(g))
-                    .sort((a, b) => lastGlobalPos[a] - lastGlobalPos[b])
                 result = this._solveWeekAssignment(
-                    weekDays, [...available, "MU"], periodAssignments, 21, prevPositions, balanceCounts, prevDayOfWeek
+                    weekDays, [...allAvailable, "MU"], periodAssignments, 21, prevPositions, balanceCounts, prevDayOfWeek
                 )
             }
 
@@ -588,6 +641,105 @@ class ScheduleBuilder {
             const dayResults = weekDays.map(() => [])
             for (const { dayIdx, period, group } of result) {
                 dayResults[dayIdx].push({ period, group })
+            }
+
+            // Balance-first reordering: assign groups to days in count order,
+            // then verify period feasibility via per-day solver.
+            {
+                const oneDayMs2 = 86400000
+
+                // Collect non-MU groups from week solver and count MU per day
+                const wsGroups = new Set()
+                const muPerDay = weekDays.map(() => 0)
+                for (let d = 0; d < weekDays.length; d++) {
+                    for (const a of dayResults[d]) {
+                        if (a.group === "MU") muPerDay[d]++
+                        else wsGroups.add(a.group)
+                    }
+                }
+
+                // Include unused groups (replace unnecessary MU)
+                const allUsed = new Set([...weeklyUsed, ...wsGroups])
+                const unused = this.LESSON_GROUPS.filter(g => !allUsed.has(g))
+                const available = [...wsGroups, ...unused]
+                    .sort((a, b) => (runningCounts[a] || 0) - (runningCounts[b] || 0))
+
+                // Non-MU slots per day
+                const realSlotsPerDay = weekDays.map((_, d) =>
+                    dayResults[d].length - muPerDay[d]
+                )
+
+                // Assign lowest-count groups to earliest days
+                const dayGroupSets = []
+                let idx = 0
+                for (let d = 0; d < weekDays.length; d++) {
+                    const n = Math.min(realSlotsPerDay[d], available.length - idx)
+                    dayGroupSets.push(available.slice(idx, idx + n))
+                    idx += n
+                }
+
+                // Solve each day with its assigned groups
+                // Track weekly used groups for the solver
+                const tempWeeklyMap = new Map([[weekId, new Set(weeklyUsed)]])
+                let allOk = true
+                const newResults = []
+
+                for (let d = 0; d < weekDays.length; d++) {
+                    const day = weekDays[d]
+                    let groups = dayGroupSets[d]
+                    const needMU = day.periods.length - groups.length
+
+                    let candidates = [...groups]
+                    for (let m = 0; m < needMU; m++) candidates.push("MU")
+
+                    let solved = this._solveDayAssignment(
+                        day.periods, candidates, day.date, weekId,
+                        tempWeeklyMap, periodAssignments, calendarFloor
+                    )
+
+                    // If failed, try swapping each group with a later-day group
+                    if (!solved) {
+                        const laterPool = []
+                        for (let ld = d + 1; ld < weekDays.length; ld++) {
+                            for (const g of dayGroupSets[ld]) laterPool.push({ group: g, fromDay: ld })
+                        }
+                        for (let ci = 0; ci < groups.length && !solved; ci++) {
+                            for (const lp of laterPool) {
+                                if (groups.includes(lp.group)) continue
+                                // Swap
+                                const origGroup = groups[ci]
+                                groups[ci] = lp.group
+                                const lpIdx = dayGroupSets[lp.fromDay].indexOf(lp.group)
+                                dayGroupSets[lp.fromDay][lpIdx] = origGroup
+
+                                candidates = [...groups]
+                                for (let m = 0; m < needMU; m++) candidates.push("MU")
+                                solved = this._solveDayAssignment(
+                                    day.periods, candidates, day.date, weekId,
+                                    tempWeeklyMap, periodAssignments, calendarFloor
+                                )
+                                if (solved) break
+
+                                // Undo swap
+                                dayGroupSets[lp.fromDay][lpIdx] = lp.group
+                                groups[ci] = origGroup
+                            }
+                        }
+                    }
+
+                    if (!solved) { allOk = false; break }
+
+                    newResults.push(solved)
+                    for (const { group } of solved) {
+                        if (group !== "MU") tempWeeklyMap.get(weekId).add(group)
+                    }
+                }
+
+                if (allOk) {
+                    for (let d = 0; d < weekDays.length; d++) {
+                        dayResults[d] = newResults[d]
+                    }
+                }
             }
 
             // Process each day's results: update state, build schedule entries
@@ -613,9 +765,6 @@ class ScheduleBuilder {
                         runningCounts[group]++
                     }
                 }
-
-                // Note: lessons kept in cycle order for flat-sequence fairness.
-                // Display sorting is done in post-processing.
 
                 if (pendingInCycle.size === 0) {
                     pendingInCycle = new Set(this.LESSON_GROUPS)
@@ -644,6 +793,7 @@ class ScheduleBuilder {
 
         return schedule
     }
+
 
     /**
      * Check if assigning a group to a period on a date would conflict with
@@ -680,7 +830,7 @@ class ScheduleBuilder {
     _hasHistoricalConflict(group, periodNum, date, dayRule) {
         const oneDayMs = 86400000
         const histDate = this.initialPeriodAssignments?.[group]?.[periodNum]
-        return histDate && Math.abs((date - histDate) / oneDayMs) < dayRule
+        return histDate && Math.round(Math.abs((date - histDate) / oneDayMs)) < dayRule
     }
 
     /**
@@ -716,7 +866,7 @@ class ScheduleBuilder {
                         }
                     }
                     for (let i = 1; i < occ.length; i++) {
-                        if ((occ[i].date - occ[i - 1].date) / oneDayMs < calendarFloor) {
+                        if (Math.round((occ[i].date - occ[i - 1].date) / oneDayMs) < calendarFloor) {
                             violations.push({ group, period, dayIdx: occ[i].dayIdx })
                         }
                     }
@@ -762,6 +912,310 @@ class ScheduleBuilder {
 
             if (!swapped) violations.shift()
         }
+    }
+
+    /**
+     * Post-processing pass: fix running balance violations by swapping
+     * groups across any two days (cross-week). A "violation" occurs when
+     * the cumulative spread (max - min lesson count) exceeds 1 after any
+     * school day. Fix: swap a high-count group from before the violation
+     * with a low-count group from after the violation.
+     * @private
+     */
+    _repairRunningBalance(schedule, calendarFloor) {
+        const oneDayMs = 86400000
+        const allGroups = this.LESSON_GROUPS
+        const G = allGroups.length
+
+        const dayWeekIds = schedule.map(d => this.getWeekIdentifier(d.date))
+
+        const getWeekGroups = (weekId) => {
+            const groups = new Set()
+            for (let d = 0; d < schedule.length; d++) {
+                if (dayWeekIds[d] !== weekId) continue
+                for (const l of schedule[d].lessons) {
+                    if (l.group !== "MU") groups.add(l.group)
+                }
+            }
+            if (this.initialWeeklyGroups && schedule.length > 0 && dayWeekIds[0] === weekId) {
+                for (const g of this.initialWeeklyGroups) groups.add(g)
+            }
+            return groups
+        }
+
+        const check28Day = (group, periodNum, date, skipDays) => {
+            if (this._hasHistoricalConflict(group, periodNum, date, calendarFloor)) return false
+            for (let d = 0; d < schedule.length; d++) {
+                if (skipDays.has(d)) continue
+                const dist = Math.round(Math.abs((date - schedule[d].date) / oneDayMs))
+                if (dist >= calendarFloor) continue
+                for (const l of schedule[d].lessons) {
+                    if (l.group === group) {
+                        const p = parseInt(l.period.replace("Pd ", ""), 10)
+                        if (p === periodNum) return false
+                    }
+                }
+            }
+            return true
+        }
+
+        for (let pass = 0; pass < 60; pass++) {
+            // Pre-compute running counts at each day boundary
+            const rc = []  // rc[d][g] = running count of g after day d
+            const prev = {}
+            allGroups.forEach(g => prev[g] = 0)
+            let violationDay = -1
+            for (let d = 0; d < schedule.length; d++) {
+                for (const l of schedule[d].lessons) {
+                    if (l.group !== "MU") prev[l.group]++
+                }
+                rc.push({ ...prev })
+                if (violationDay === -1) {
+                    const vals = Object.values(prev)
+                    if (Math.max(...vals) - Math.min(...vals) > 1) {
+                        violationDay = d
+                    }
+                }
+            }
+            if (violationDay === -1) return  // No violations!
+
+            const maxC = Math.max(...Object.values(rc[violationDay]))
+            const minC = Math.min(...Object.values(rc[violationDay]))
+            const highGroups = allGroups.filter(g => rc[violationDay][g] === maxC)
+            const lowGroups = allGroups.filter(g => rc[violationDay][g] === minC)
+
+            let improved = false
+
+            // Strategy 1: Cross-day swap (any two days, not limited to same week)
+            // Swap high-count group from d1 (≤ vDay) with low-count group from d2 (> vDay)
+            // Effect on running counts in [d1, d2-1]: hg -1, lg +1
+            for (const hg of highGroups) {
+                if (improved) break
+                for (let d1 = violationDay; d1 >= 0 && !improved; d1--) {
+                    const li1 = schedule[d1].lessons.findIndex(l => l.group === hg)
+                    if (li1 === -1) continue
+                    const p1 = parseInt(schedule[d1].lessons[li1].period.replace("Pd ", ""), 10)
+                    const wk1 = dayWeekIds[d1]
+
+                    for (const lg of lowGroups) {
+                        if (improved) break
+                        for (let d2 = violationDay + 1; d2 < schedule.length && !improved; d2++) {
+                            const li2 = schedule[d2].lessons.findIndex(l => l.group === lg)
+                            if (li2 === -1) continue
+                            const p2 = parseInt(schedule[d2].lessons[li2].period.replace("Pd ", ""), 10)
+                            const wk2 = dayWeekIds[d2]
+
+                            // Weekly uniqueness
+                            if (wk1 !== wk2) {
+                                const wk2Groups = getWeekGroups(wk2)
+                                if (wk2Groups.has(hg)) continue
+                                const wk1Groups = getWeekGroups(wk1)
+                                if (wk1Groups.has(lg)) continue
+                            }
+
+                            // Same-day duplicate
+                            if (schedule[d2].lessons.some((l, i) => i !== li2 && l.group === hg)) continue
+                            if (schedule[d1].lessons.some((l, i) => i !== li1 && l.group === lg)) continue
+
+                            // 28-day constraint
+                            const skipSet = new Set([d1, d2])
+                            if (!check28Day(hg, p2, schedule[d2].date, skipSet)) continue
+                            if (!check28Day(lg, p1, schedule[d1].date, skipSet)) continue
+
+                            // Verify no new violations in [d1, d2-1]
+                            // In this range: hg count -1, lg count +1
+                            let ok = true
+                            for (let d = d1; d < d2; d++) {
+                                const modHg = rc[d][hg] - 1
+                                const modLg = rc[d][lg] + 1
+                                // Find max and min with the modified values
+                                let hi = modHg, lo = modHg
+                                for (const g of allGroups) {
+                                    const v = (g === hg) ? modHg : (g === lg) ? modLg : rc[d][g]
+                                    if (v > hi) hi = v
+                                    if (v < lo) lo = v
+                                }
+                                if (hi - lo > 1) { ok = false; break }
+                            }
+
+                            if (ok) {
+                                schedule[d1].lessons[li1].group = lg
+                                schedule[d2].lessons[li2].group = hg
+                                improved = true
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Strategy 2: Within-week swap on violation day
+            if (!improved) {
+                const wk = dayWeekIds[violationDay]
+                const weekDays = []
+                for (let d = 0; d < schedule.length; d++) {
+                    if (dayWeekIds[d] === wk && d !== violationDay) weekDays.push(d)
+                }
+
+                for (let li = 0; li < schedule[violationDay].lessons.length && !improved; li++) {
+                    const lesson = schedule[violationDay].lessons[li]
+                    if (lesson.group === "MU") continue
+                    if (rc[violationDay][lesson.group] !== maxC) continue
+                    const p1 = parseInt(lesson.period.replace("Pd ", ""), 10)
+
+                    for (const od of weekDays) {
+                        if (improved) break
+                        for (let oj = 0; oj < schedule[od].lessons.length; oj++) {
+                            const other = schedule[od].lessons[oj]
+                            if (other.group === "MU") continue
+                            if (rc[violationDay][other.group] >= maxC) continue
+                            const p2 = parseInt(other.period.replace("Pd ", ""), 10)
+                            const skipSet = new Set([violationDay, od])
+                            if (p1 === p2) {
+                                if (!check28Day(lesson.group, p1, schedule[od].date, skipSet)) continue
+                                if (!check28Day(other.group, p1, schedule[violationDay].date, skipSet)) continue
+                            } else {
+                                if (!check28Day(lesson.group, p2, schedule[od].date, skipSet)) continue
+                                if (!check28Day(other.group, p1, schedule[violationDay].date, skipSet)) continue
+                            }
+
+                            // Apply and verify
+                            const g1 = lesson.group
+                            lesson.group = other.group
+                            other.group = g1
+                            if (this._runningBalanceViolations(schedule) < this._runningBalanceViolations(schedule)) {
+                                improved = true
+                                break
+                            }
+                            // Just accept within-week swaps that don't violate constraints
+                            improved = true
+                            break
+                        }
+                    }
+                }
+            }
+
+            if (!improved) break
+        }
+    }
+
+    /**
+     * Period unblocking: when a low-count group is blocked from all periods
+     * on a violation day, swap its period assignment on a prior day so it
+     * becomes available for at least one period on the violation day.
+     * Does NOT change which groups are on which days — only changes periods.
+     * After unblocking, _repairRunningBalance can do the cross-day swap.
+     * @private
+     */
+    _unblockPeriods(schedule, calendarFloor) {
+        const oneDayMs = 86400000
+        const allGroups = this.LESSON_GROUPS
+
+        const check28Day = (group, periodNum, date, skipDays) => {
+            if (this._hasHistoricalConflict(group, periodNum, date, calendarFloor)) return false
+            for (let d = 0; d < schedule.length; d++) {
+                if (skipDays.has(d)) continue
+                const dist = Math.round(Math.abs((date - schedule[d].date) / oneDayMs))
+                if (dist >= calendarFloor) continue
+                for (const l of schedule[d].lessons) {
+                    if (l.group === group) {
+                        const p = parseInt(l.period.replace("Pd ", ""), 10)
+                        if (p === periodNum) return false
+                    }
+                }
+            }
+            return true
+        }
+
+        // Find first violation
+        const counts = {}
+        allGroups.forEach(g => counts[g] = 0)
+        let violationDay = -1
+        for (let d = 0; d < schedule.length; d++) {
+            for (const l of schedule[d].lessons) {
+                if (l.group !== "MU") counts[l.group]++
+            }
+            const vals = Object.values(counts)
+            if (Math.max(...vals) - Math.min(...vals) > 1) {
+                violationDay = d
+                break
+            }
+        }
+        if (violationDay === -1) return false
+
+        const maxC = Math.max(...Object.values(counts))
+        const minC = Math.min(...Object.values(counts))
+        const lowGroups = allGroups.filter(g => counts[g] === minC)
+
+        const vDate = schedule[violationDay].date
+        const vPeriods = schedule[violationDay].lessons.map(l =>
+            parseInt(l.period.replace("Pd ", ""), 10)
+        )
+
+        for (const lg of lowGroups) {
+            // Check which periods lg can use on vDay
+            const availableP = vPeriods.filter(p => check28Day(lg, p, vDate, new Set([violationDay])))
+            if (availableP.length > 0) continue  // lg has options, standard repair should handle it
+
+            // lg blocked from ALL periods. Try unblocking one.
+            for (const targetP of vPeriods) {
+                // Find the day within 28 days where lg has period targetP
+                for (let d_block = 0; d_block < schedule.length; d_block++) {
+                    if (d_block === violationDay) continue
+                    const dist = Math.round(Math.abs((schedule[d_block].date - vDate) / oneDayMs))
+                    if (dist >= calendarFloor) continue
+
+                    const lgIdx = schedule[d_block].lessons.findIndex(l =>
+                        l.group === lg && parseInt(l.period.replace("Pd ", ""), 10) === targetP
+                    )
+                    if (lgIdx === -1) continue
+
+                    // Try swapping lg with each other lesson on d_block
+                    for (let oj = 0; oj < schedule[d_block].lessons.length; oj++) {
+                        if (oj === lgIdx) continue
+                        const other = schedule[d_block].lessons[oj]
+                        if (other.group === "MU") continue
+
+                        const otherP = parseInt(other.period.replace("Pd ", ""), 10)
+                        if (otherP === targetP) continue
+
+                        const skipSet = new Set([d_block])
+                        if (!check28Day(lg, otherP, schedule[d_block].date, skipSet)) continue
+                        if (!check28Day(other.group, targetP, schedule[d_block].date, skipSet)) continue
+
+                        // Swap groups between the two period slots
+                        schedule[d_block].lessons[lgIdx].group = other.group
+                        other.group = lg
+
+                        // Verify no 28-day violations created
+                        let ok = true
+                        // Check both groups at their new periods
+                        for (let dd = 0; dd < schedule.length; dd++) {
+                            if (dd === d_block) continue
+                            const ddDist = Math.round(Math.abs((schedule[dd].date - schedule[d_block].date) / oneDayMs))
+                            if (ddDist >= calendarFloor) continue
+                            for (const l of schedule[dd].lessons) {
+                                if (l.group === lg) {
+                                    const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                    if (p === otherP) { ok = false; break }
+                                }
+                                if (l.group === schedule[d_block].lessons[lgIdx].group) {
+                                    const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                    if (p === targetP) { ok = false; break }
+                                }
+                            }
+                            if (!ok) break
+                        }
+
+                        if (ok) return true  // Successfully unblocked
+
+                        // Undo
+                        other.group = schedule[d_block].lessons[lgIdx].group
+                        schedule[d_block].lessons[lgIdx].group = lg
+                    }
+                }
+            }
+        }
+        return false
     }
 
     /**
@@ -842,7 +1296,7 @@ class ScheduleBuilder {
                             for (const l of s.lessons) {
                                 if (l.group === candidate) {
                                     const p = parseInt(l.period.replace("Pd ", ""), 10)
-                                    if (p === periodNum && Math.abs((day.date - s.date) / oneDayMs) < dayRule) {
+                                    if (p === periodNum && Math.round(Math.abs((day.date - s.date) / oneDayMs)) < dayRule) {
                                         tooClose = true
                                     }
                                 }
@@ -908,7 +1362,7 @@ class ScheduleBuilder {
                                 for (const l of s.lessons) {
                                     if (l.group === candidate) {
                                         const p = parseInt(l.period.replace("Pd ", ""), 10)
-                                        if (p === periodNum && Math.abs((day.date - s.date) / oneDayMs) < dayRule) {
+                                        if (p === periodNum && Math.round(Math.abs((day.date - s.date) / oneDayMs)) < dayRule) {
                                             tooClose = true
                                         }
                                     }
@@ -973,6 +1427,20 @@ class ScheduleBuilder {
         return Math.max(...vals) - Math.min(...vals)
     }
 
+    _runningBalanceViolations(schedule) {
+        const counts = {}
+        this.LESSON_GROUPS.forEach(g => counts[g] = 0)
+        let violations = 0
+        for (const d of schedule) {
+            for (const l of d.lessons) {
+                if (l.group !== "MU") counts[l.group]++
+            }
+            const vals = Object.values(counts)
+            if (Math.max(...vals) - Math.min(...vals) > 1) violations++
+        }
+        return violations
+    }
+
     buildSchedule() {
         const slots = this.generateAllSlots()
         if (slots.length === 0) return []
@@ -980,16 +1448,18 @@ class ScheduleBuilder {
         const days = this._groupSlotsByDay(slots)
 
         let bestSchedule = null
-        let bestSpread = Infinity
+        let bestScore = Infinity // lower is better: running balance violations * 1000 + end spread
 
         const tryConstruction = (offset, dayStab) => {
             let schedule = this._constructSchedule(days, 28, offset, dayStab)
             if (!schedule) schedule = this._constructSchedule(days, 21, offset, dayStab)
             if (schedule) {
                 this._repairViolations(schedule, 28)
-                const s = this._combinedBalanceSpread(schedule)
-                if (!bestSchedule || s < bestSpread) {
-                    bestSpread = s
+                const rbv = this._runningBalanceViolations(schedule)
+                const endSpread = this._combinedBalanceSpread(schedule)
+                const score = rbv * 1000 + endSpread
+                if (!bestSchedule || score < bestScore) {
+                    bestScore = score
                     bestSchedule = schedule
                 }
             }
@@ -998,20 +1468,52 @@ class ScheduleBuilder {
         tryConstruction(0, true)
         tryConstruction(0, false)
 
-        if (bestSpread > 1) {
-            for (const offset of [7, 11, 3, 15, 19, 5, 9, 13, 17, 1]) {
+        if (bestScore > 0) {
+            for (let offset = 1; offset < 22; offset++) {
                 tryConstruction(offset, true)
                 tryConstruction(offset, false)
-                if (bestSpread <= 1) break
+                if (bestScore <= 1) break
             }
         }
 
         if (!bestSchedule) return []
 
         this.achievedDayRule = 28
-        this._balanceLessonCounts(bestSchedule, 28)
-        this._balanceLessonCounts(bestSchedule, 28)
-        this._balanceLessonCounts(bestSchedule, 28)
+
+        // Repair remaining running balance violations
+        this._repairRunningBalance(bestSchedule, 28)
+
+        // If violations remain, try period unblocking + re-repair
+        for (let attempt = 0; attempt < 5; attempt++) {
+            if (this._runningBalanceViolations(bestSchedule) === 0) break
+            if (!this._unblockPeriods(bestSchedule, 28)) break
+            this._repairRunningBalance(bestSchedule, 28)
+        }
+
+        // Run _balanceLessonCounts only if it doesn't worsen running balance
+        const rbBefore = this._runningBalanceViolations(bestSchedule)
+        const endSpread = this._combinedBalanceSpread(bestSchedule)
+        if (endSpread > 1) {
+            const saved = bestSchedule.map(d => d.lessons.map(l => l.group))
+            this._balanceLessonCounts(bestSchedule, 28)
+            const rbAfter = this._runningBalanceViolations(bestSchedule)
+            if (rbAfter > rbBefore) {
+                for (let i = 0; i < bestSchedule.length; i++) {
+                    for (let j = 0; j < bestSchedule[i].lessons.length; j++) {
+                        bestSchedule[i].lessons[j].group = saved[i][j]
+                    }
+                }
+            } else if (rbAfter > 0) {
+                // Balance pass may have introduced violations — try to fix
+                this._repairRunningBalance(bestSchedule, 28)
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    if (this._runningBalanceViolations(bestSchedule) === 0) break
+                    if (!this._unblockPeriods(bestSchedule, 28)) break
+                    this._repairRunningBalance(bestSchedule, 28)
+                }
+            }
+        }
+
         return bestSchedule
     }
 }

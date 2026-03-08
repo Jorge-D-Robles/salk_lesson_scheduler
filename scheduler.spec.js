@@ -24,7 +24,7 @@ const assertNo28DayConflicts = (schedule, initialAssignments = {}, minDays = 14)
 
             if (lastTimeInPeriod) {
                 const differenceInMs = dayEntry.date - lastTimeInPeriod
-                const differenceInDays = Math.floor(
+                const differenceInDays = Math.round(
                     differenceInMs / oneDayInMilliseconds
                 )
                 expect(differenceInDays).toBeGreaterThanOrEqual(

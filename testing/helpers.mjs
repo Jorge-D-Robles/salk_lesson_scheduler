@@ -70,7 +70,7 @@ export function runChecks(schedule, builder) {
         if (l.group === 'MU') return;
         if (!lastSeen[l.group]) lastSeen[l.group] = {};
         const last = lastSeen[l.group][l.period];
-        if (last && (d.date - last) / ONE_DAY_MS < 28)
+        if (last && Math.round((d.date - last) / ONE_DAY_MS) < 28)
             issues.push(`28DAY:${l.group} ${l.period}`);
         lastSeen[l.group][l.period] = d.date;
     }));
@@ -105,7 +105,33 @@ export function runChecks(schedule, builder) {
     if (vals.length > 0 && Math.max(...vals) - Math.min(...vals) > 1)
         issues.push(`BALANCE:${Math.max(...vals) - Math.min(...vals)}`);
 
+    // Running balance: spread ≤ 1 at every day boundary
+    const rbIssues = checkRunningBalance(schedule, builder.LESSON_GROUPS);
+    if (rbIssues.length > 0)
+        issues.push(`RUNNING_BALANCE:${rbIssues.length} days with spread>1 (worst=${rbIssues[0].spread} on day ${rbIssues[0].dayIndex})`);
+
     return issues;
+}
+
+/**
+ * Check running balance: spread ≤ 1 at every day boundary.
+ * Returns array of violations: { dayIndex, spread }
+ */
+export function checkRunningBalance(schedule, allGroups) {
+    const counts = {};
+    allGroups.forEach(g => counts[g] = 0);
+    const violations = [];
+    for (let i = 0; i < schedule.length; i++) {
+        for (const l of schedule[i].lessons) {
+            if (l.group !== 'MU') counts[l.group]++;
+        }
+        const vals = Object.values(counts);
+        const spread = Math.max(...vals) - Math.min(...vals);
+        if (spread > 1) {
+            violations.push({ dayIndex: i, spread });
+        }
+    }
+    return violations;
 }
 
 /**

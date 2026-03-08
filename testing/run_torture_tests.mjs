@@ -218,7 +218,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
             if (l.group === 'MU') continue;
             if (!lastSeen[l.group]) lastSeen[l.group] = {};
             const last = lastSeen[l.group][l.period];
-            if (last && (d.date - last) / ONE_DAY_MS < 28) issues.push(`28DAY:${l.group} ${l.period}`);
+            if (last && Math.round((d.date - last) / ONE_DAY_MS) < 28) issues.push(`28DAY:${l.group} ${l.period}`);
             lastSeen[l.group][l.period] = d.date;
         }
     }

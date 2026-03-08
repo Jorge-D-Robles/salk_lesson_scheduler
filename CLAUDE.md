@@ -45,13 +45,13 @@ There is no build step, linter, or package manager. The app runs as a static sit
 
 `ScheduleBuilder` uses a constructive cycle-based approach with **week-level MRV backtracking** and a **28-day calendar spacing rule** as the primary period constraint.
 
-**Construction** (`_constructSchedule`): Groups days by calendar week and solves all slots in each week simultaneously using `_solveWeekAssignment`. This week-level approach prevents the greedy day-by-day solver from exhausting scarce shared-period groups. The solver has a 4-tier fallback: (1) pending groups only, (2) pending + next-cycle, (3) all groups ignoring cycle, (4) all groups with reduced 21-day floor. Multi-trial with 10+ position offsets picks the best construction by combined cycle violations + balance spread.
+**Construction** (`_constructSchedule`): Groups days by calendar week and solves all slots in each week simultaneously using `_solveWeekAssignment`. The week-level solver enforces **running balance** (spread ≤ 1 after every day) via day-boundary balance checks during backtracking — it tries all tiers with balance constraint before falling back to unconstrained. The solver has a 4-tier fallback: (1) pending groups only, (2) pending + next-cycle, (3) all groups ignoring cycle, (4) all groups with reduced 21-day floor. Multi-trial with 22 position offsets × 2 dayStability modes selects the best construction by running balance violations.
 
 **Post-processing pipeline** (`buildSchedule`):
 1. `_repairViolations`: targeted swaps to fix any remaining 28-day violations
-2. `_improveCycleOrder`: within-day swaps to reduce cycle violations (Phase 1 targets 480 for headroom)
-3. `_balanceLessonCounts`: cycle-aware balance swaps + MU fill/replace strategies
-4. Interleaved cycle improvement + balance passes
+2. `_repairRunningBalance`: cross-day swaps (including cross-week) to fix running balance violations
+3. `_unblockPeriods`: period swaps on prior days to unblock low-count groups from all-period-blocked situations
+4. `_balanceLessonCounts`: balance swaps + MU fill/replace strategies (safe: reverts if running balance worsens)
 
 Available periods depend on the day cycle: Day 1 (odd) = `DAY1_PERIODS` [1, 4, 7, 8], Day 2 (even) = `DAY2_PERIODS` [1, 2, 3, 7, 8]. **Period numbers are global** — period 1 is the same period regardless of whether it falls on a Day 1 or Day 2.
 
@@ -62,8 +62,13 @@ Available periods depend on the day cycle: Day 1 (odd) = `DAY1_PERIODS` [1, 4, 7
 1. **28-day calendar spacing** (highest priority): No group can have the same period number within 28 calendar days. Period numbers are global across day types.
 2. **Weekly uniqueness**: No group scheduled more than once per calendar week.
 3. **MU limit**: At most 1 Make-Up (MU) slot per day.
-4. **Balance**: Max-min lesson count difference across all groups ≤ 2. Post-processing swap validation uses the 28-day floor.
-5. **Cycle fairness** (best effort): All 22 groups should appear before any group repeats. Violations scale with schedule length (≤500 for 40+ week schedules).
+4. **Running balance**: Max-min lesson count difference across all groups ≤ 1 at every day boundary (not just end-of-schedule). Enforced during construction via balance-constrained solver + post-processing repair.
+5. **End-of-schedule balance**: Max-min lesson count ≤ 2. Post-processing swap validation uses the 28-day floor.
+6. **Cycle fairness** (best effort): All 22 groups should appear before any group repeats. Violations scale with schedule length (≤500 for 40+ week schedules).
+
+### DST Handling
+
+All calendar-day calculations use `Math.round()` when dividing millisecond differences by 86400000. This prevents DST transitions (spring forward/fall back) from incorrectly shortening or lengthening 28-day gaps by ±1 hour. Without rounding, a 28-calendar-day gap crossing DST spring forward appears as ~27.96 days, incorrectly blocking valid period assignments.
 
 ### Test Helper Functions
 
