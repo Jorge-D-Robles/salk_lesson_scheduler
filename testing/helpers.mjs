@@ -51,9 +51,9 @@ export function allFridaysInRange(s, e) {
  * Run all constraint checks on a schedule. Returns an array of issue strings.
  * Empty array = all checks passed.
  *
- * Checks: slot fill, 21-day rule, weekly uniqueness, MU clustering, balance, cycle fairness.
+ * Checks: slot fill, 28-day rule, weekly uniqueness, MU clustering, balance.
  */
-export function runChecks(schedule, builder, { maxCycleViolations = 500 } = {}) {
+export function runChecks(schedule, builder) {
     const issues = [];
     if (schedule.length === 0) return ['EMPTY'];
 
@@ -104,12 +104,6 @@ export function runChecks(schedule, builder, { maxCycleViolations = 500 } = {}) 
     const vals = [...counts.values()];
     if (vals.length > 0 && Math.max(...vals) - Math.min(...vals) > 2)
         issues.push(`BALANCE:${Math.max(...vals) - Math.min(...vals)}`);
-
-    // Cycle fairness (relaxed — bounded violations allowed)
-    const cycleInfo = analyzeCycleViolations(schedule, builder);
-    if (cycleInfo.violations > maxCycleViolations) {
-        issues.push(`CYCLE:${cycleInfo.violations}>${maxCycleViolations}`);
-    }
 
     return issues;
 }

@@ -106,53 +106,14 @@ const allFridaysInRange = (startStr, endStr) => {
 
 describe("ScheduleBuilder - Torture Tests", () => {
 
-    // Relaxed cycle fairness: allows a bounded number of cycle violations.
-    // The 28-day period constraint makes perfect cycle ordering impossible
-    // when days off create tight scheduling windows.
-    const assertCycleFairnessRelaxed = (schedule, allGroups, maxViolations = 60) => {
-        const lessonGroups = schedule
-            .flatMap((day) => day.lessons)
-            .filter((l) => l.group !== "MU")
-            .map((l) => l.group)
-
-        const totalGroups = allGroups.length
-        if (lessonGroups.length <= totalGroups) return
-
-        const groupIndices = new Map()
-        allGroups.forEach((g) => groupIndices.set(g, []))
-        lessonGroups.forEach((g, i) => {
-            if (groupIndices.has(g)) groupIndices.get(g).push(i)
-        })
-
-        let violations = 0
-        for (const [group, indices] of groupIndices.entries()) {
-            for (let i = 0; i < indices.length - 1; i++) {
-                const between = new Set(
-                    lessonGroups.slice(indices[i] + 1, indices[i + 1])
-                )
-                const missing = allGroups.filter(
-                    (g) => g !== group && !between.has(g)
-                )
-                if (missing.length > 0) violations++
-            }
-        }
-
-        expect(violations).toBeLessThanOrEqual(
-            maxViolations,
-            `Too many cycle violations: ${violations} (max allowed: ${maxViolations}). ` +
-            `Perfect cycle ordering is constrained by the period rotation rule.`
-        )
-    }
-
     // Run all standard constraint checks on a schedule
-    const runAllChecks = (schedule, builder, dayRule = 28, maxCycleViolations = 500) => {
+    const runAllChecks = (schedule, builder, dayRule = 28) => {
         assertScheduleNotEmpty(schedule, "torture test")
         assertAllSlotsFilled(schedule)
         assertNoDayRuleConflicts(schedule, dayRule)
         assertNoWeeklyConflicts(schedule)
         assertNoMUClustering(schedule)
         assertBalancedUsage(schedule)
-        assertCycleFairnessRelaxed(schedule, builder.LESSON_GROUPS, maxCycleViolations)
     }
 
     describe("Heavy scattered days off", () => {
@@ -696,7 +657,7 @@ describe("ScheduleBuilder - Torture Tests", () => {
                         "2025-09-02", startCycle, allDaysOff, 43
                     )
                     const schedule = builder.buildSchedule()
-                    runAllChecks(schedule, builder, 28, 500)
+                    runAllChecks(schedule, builder, 28)
                 })
             })
         })

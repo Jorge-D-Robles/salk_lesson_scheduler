@@ -118,16 +118,24 @@ const realisticTests = [
 
 let pass = 0, fail = 0;
 
-function runTest(desc, start, cycle, daysOff, weeks, opts = {}) {
+function getSpread(schedule) {
+    const counts = new Map();
+    for (const d of schedule) for (const l of d.lessons) {
+        if (l.group !== 'MU') counts.set(l.group, (counts.get(l.group) || 0) + 1);
+    }
+    const vals = [...counts.values()];
+    return vals.length > 0 ? Math.max(...vals) - Math.min(...vals) : 0;
+}
+
+function runTest(desc, start, cycle, daysOff, weeks) {
     const builder = new ScheduleBuilder(start, cycle, daysOff, weeks);
     const schedule = builder.buildSchedule();
-    const issues = runChecks(schedule, builder, opts);
-    const cycleInfo = analyzeCycleViolations(schedule, builder);
+    const issues = runChecks(schedule, builder);
+    const spread = getSpread(schedule);
     const status = issues.length === 0 ? 'PASS' : 'FAIL';
     if (status === 'FAIL') fail++;
     else pass++;
-    const cycleLabel = cycleInfo.violations > 0 ? ` [cycle: ${cycleInfo.summary}]` : '';
-    console.log(`${status} ${desc} c${cycle}${issues.length > 0 ? ': ' + issues.join(', ') : ''}${cycleLabel}`);
+    console.log(`${status} ${desc} c${cycle} (spread=${spread})${issues.length > 0 ? ': ' + issues.join(', ') : ''}`);
 }
 
 for (const t of tortureTests) {
@@ -139,7 +147,7 @@ for (const t of tortureTests) {
 console.log('\n--- Levittown realistic scenarios ---');
 for (const t of realisticTests) {
     for (const cycle of [1, 2]) {
-        runTest(t.desc, '2025-09-02', cycle, [...levittownBase, ...t.extra], 43, { maxCycleViolations: 500 });
+        runTest(t.desc, '2025-09-02', cycle, [...levittownBase, ...t.extra], 43);
     }
 }
 

@@ -183,39 +183,6 @@ function getWeekIdentifier(d) {
     return new Date(newD.setDate(diff)).toDateString()
 }
 
-function findRotationViolations(dayIndex, group, period, excludeDayIndices) {
-    if (!currentSchedule || group.startsWith('MU')) return []
-    const DAY1 = [1, 4, 7, 8]
-    const DAY2 = [1, 2, 3, 7, 8]
-    const ALL_PERIODS = [1, 2, 3, 4, 7, 8]
-    const periodNum = parseInt(period.replace('Pd ', ''), 10)
-    const dayPeriods = currentSchedule[dayIndex].dayCycle === 1 ? DAY1 : DAY2
-
-    // Reconstruct global rotation state for this group up to dayIndex
-    let usedPeriods = new Set()
-    for (let i = 0; i < dayIndex; i++) {
-        if (excludeDayIndices && excludeDayIndices.has(i)) continue
-        for (const lesson of currentSchedule[i].lessons) {
-            if (lesson.group !== group) continue
-            const p = parseInt(lesson.period.replace('Pd ', ''), 10)
-            usedPeriods.add(p)
-            if (ALL_PERIODS.every(pp => usedPeriods.has(pp))) {
-                usedPeriods = new Set()
-            }
-        }
-    }
-
-    if (usedPeriods.has(periodNum)) {
-        // Day-type exemption: not a violation if all periods on this
-        // day type are already used (group can't progress rotation)
-        const allDayPeriodsUsed = dayPeriods.every(p => usedPeriods.has(p))
-        if (!allDayPeriodsUsed) {
-            return [{ type: 'rotation', group, period, message: `${period} already used in current rotation cycle` }]
-        }
-    }
-    return []
-}
-
 function findWeeklyViolations(sourceDayIndex, targetDayIndex, groupA, groupB) {
     if (!currentSchedule || sourceDayIndex === targetDayIndex) return []
     const violations = []
@@ -261,12 +228,8 @@ function checkSwapViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, 
     const targetEntry = currentSchedule[targetDayIndex]
     const lessonA = sourceEntry.lessons[sourceLessonIndex]
     const lessonB = targetEntry.lessons[targetLessonIndex]
-    const isCrossDay = sourceDayIndex !== targetDayIndex
-    const excludeSet = isCrossDay ? new Set([sourceDayIndex, targetDayIndex]) : undefined
     // After swap: groupA goes to target period, groupB goes to source period
     const violations = [
-        ...findRotationViolations(targetDayIndex, lessonA.group, lessonB.period, excludeSet),
-        ...findRotationViolations(sourceDayIndex, lessonB.group, lessonA.period, excludeSet),
         ...findWeeklyViolations(sourceDayIndex, targetDayIndex, lessonA.group, lessonB.group),
         ...findMUViolations(targetDayIndex, targetLessonIndex, lessonA.group),
         ...findMUViolations(sourceDayIndex, sourceLessonIndex, lessonB.group),
@@ -316,7 +279,6 @@ function showSwapWarningTooltip(cell, violations) {
     closeBtn.addEventListener('click', () => dismissSwapWarning())
     tooltip.appendChild(closeBtn)
     let html = violations.map(v => {
-        if (v.type === 'rotation') return `<div class="warn-line">${v.group}: ${v.period} already used in current rotation cycle</div>`
         if (v.type === 'weekly') return `<div class="warn-line">${v.group} already scheduled this week (${v.conflictDate})</div>`
         if (v.type === 'mu') return `<div class="warn-line">Would create 2+ MU slots on ${v.conflictDate}</div>`
         return ''
@@ -1037,42 +999,7 @@ function getScheduleParameters() {
  * @param {Array<ScheduleEntry>} schedule - The schedule array from ScheduleBuilder.
  */
 function computeCellIssues(schedule) {
-    const issues = new Map()
-    const DAY1 = [1, 4, 7, 8]
-    const DAY2 = [1, 2, 3, 7, 8]
-    const ALL_PERIODS = [1, 2, 3, 4, 7, 8]
-    const usedPeriods = {}
-
-    for (let dayIndex = 0; dayIndex < schedule.length; dayIndex++) {
-        const entry = schedule[dayIndex]
-        const dayPeriods = entry.dayCycle === 1 ? DAY1 : DAY2
-
-        for (let lessonIndex = 0; lessonIndex < entry.lessons.length; lessonIndex++) {
-            const lesson = entry.lessons[lessonIndex]
-            if (lesson.group.startsWith('MU')) continue
-            const periodNum = parseInt(lesson.period.replace('Pd ', ''), 10)
-            const cellIssues = []
-
-            if (!usedPeriods[lesson.group]) usedPeriods[lesson.group] = new Set()
-            if (usedPeriods[lesson.group].has(periodNum)) {
-                // Day-type exemption: not a violation if all day-type periods are used
-                const allDayPeriodsUsed = dayPeriods.every(p => usedPeriods[lesson.group].has(p))
-                if (!allDayPeriodsUsed) {
-                    cellIssues.push(`${lesson.period} repeated before completing full period rotation`)
-                }
-            }
-
-            usedPeriods[lesson.group].add(periodNum)
-            if (ALL_PERIODS.every(p => usedPeriods[lesson.group].has(p))) {
-                usedPeriods[lesson.group] = new Set()
-            }
-
-            if (cellIssues.length > 0) {
-                issues.set(`${dayIndex}-${lessonIndex}`, cellIssues)
-            }
-        }
-    }
-    return issues
+    return new Map()
 }
 
 function displaySchedule(schedule) {
