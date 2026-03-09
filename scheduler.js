@@ -1431,7 +1431,7 @@ class ScheduleBuilder {
         return violations
     }
 
-    buildSchedule() {
+    buildSchedule(progress) {
         const slots = this.generateAllSlots()
         if (slots.length === 0) return []
 
@@ -1439,6 +1439,7 @@ class ScheduleBuilder {
 
         let bestSchedule = null
         let bestScore = Infinity // lower is better: running balance violations * 1000 + end spread
+        let trialNum = 0
 
         const tryConstruction = (offset, dayStab) => {
             let schedule = this._constructSchedule(days, 28, offset, dayStab)
@@ -1453,6 +1454,8 @@ class ScheduleBuilder {
                     bestSchedule = schedule
                 }
             }
+            trialNum++
+            if (progress) progress({ trial: trialNum, totalTrials: 44, bestScore })
         }
 
         tryConstruction(0, true)

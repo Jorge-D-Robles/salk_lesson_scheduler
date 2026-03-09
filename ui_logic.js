@@ -39,6 +39,13 @@ const ui = {
     loadDriveBtn: null,
     toastContainer: null,
     undoBtn: null,
+    clearDaysOffBtn: null,
+    loadingProgressText: null,
+    scheduleSummary: null,
+    holidaysSection: null,
+    saveHolidaysBtn: null,
+    loadHolidaysSelect: null,
+    deleteHolidayBtn: null,
 }
 
 // Holds the most recently displayed schedule for Drive persistence
@@ -106,6 +113,65 @@ function showLoading() {
     ui.loadingIndicator.classList.remove("hidden")
     ui.loadingIndicator.style.display = "flex"
     ui.scheduleOutput.classList.add("hidden")
+    if (ui.loadingProgressText) ui.loadingProgressText.textContent = "Generating schedule..."
+}
+
+function updateLoadingProgress(data) {
+    if (!ui.loadingProgressText) return
+    const pct = Math.round((data.trial / data.totalTrials) * 100)
+    ui.loadingProgressText.textContent = `Trial ${data.trial}/${data.totalTrials} (${pct}%) — best score: ${data.bestScore}`
+}
+
+function displayScheduleSummary(schedule) {
+    if (!ui.scheduleSummary || !schedule || schedule.length === 0) return
+    const counts = {}
+    for (const day of schedule) {
+        for (const lesson of day.lessons) {
+            if (lesson.group === 'MU') continue
+            counts[lesson.group] = (counts[lesson.group] || 0) + 1
+        }
+    }
+    const vals = Object.values(counts)
+    const minCount = Math.min(...vals)
+    const maxCount = Math.max(...vals)
+    const endSpread = maxCount - minCount
+
+    // Running balance: max spread at any day boundary
+    const running = {}
+    let maxRunSpread = 0
+    for (const day of schedule) {
+        for (const lesson of day.lessons) {
+            if (lesson.group === 'MU') continue
+            running[lesson.group] = (running[lesson.group] || 0) + 1
+        }
+        const rVals = Object.values(running)
+        if (rVals.length > 0) {
+            const spread = Math.max(...rVals) - Math.min(...rVals)
+            if (spread > maxRunSpread) maxRunSpread = spread
+        }
+    }
+
+    const summaryContent = document.getElementById('summary-content')
+    if (!summaryContent) return
+    summaryContent.innerHTML = `
+        <div class="text-center">
+            <div class="text-2xl font-bold text-indigo-700">${schedule.length}</div>
+            <div class="text-gray-600">Total Days</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-bold text-indigo-700">${endSpread}</div>
+            <div class="text-gray-600">End Balance Spread</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-bold ${maxRunSpread <= 1 ? 'text-green-600' : 'text-amber-600'}">${maxRunSpread}</div>
+            <div class="text-gray-600">Max Running Spread</div>
+        </div>
+        <div class="text-center">
+            <div class="text-2xl font-bold text-indigo-700">${minCount}–${maxCount}</div>
+            <div class="text-gray-600">Lessons/Group</div>
+        </div>
+    `
+    ui.scheduleSummary.classList.remove('hidden')
 }
 
 function hideLoading() {
@@ -122,6 +188,10 @@ function getSchedulerWorker() {
     if (!schedulerWorker) {
         schedulerWorker = new Worker('scheduler_worker.js')
         schedulerWorker.onmessage = function (e) {
+            if (e.data.type === 'progress') {
+                updateLoadingProgress(e.data.data)
+                return
+            }
             const { id, result, error } = e.data
             const pending = pendingWorkerRequests.get(id)
             if (!pending) return
@@ -575,6 +645,7 @@ function handleIdentified(profile) {
     ui.userProfile.classList.add('flex')
     ui.saveDriveBtn.classList.remove('hidden')
     ui.loadDriveBtn.classList.remove('hidden')
+    if (ui.holidaysSection) ui.holidaysSection.classList.remove('hidden')
 }
 
 /**
@@ -635,6 +706,7 @@ async function handleAccessToken(token) {
             console.warn('Could not auto-load from Drive:', e)
         }
     }
+    refreshHolidayDropdown()
 }
 
 /**
@@ -646,8 +718,22 @@ function handleSignOut() {
     ui.userProfile.classList.remove('flex')
     ui.saveDriveBtn.classList.add('hidden')
     ui.loadDriveBtn.classList.add('hidden')
+    if (ui.holidaysSection) ui.holidaysSection.classList.add('hidden')
     ui.userAvatar.src = ''
     ui.userName.textContent = ''
+}
+
+let autoSaveTimer = null
+
+/**
+ * Debounced wrapper around autoSaveToDrive — waits 3 seconds of inactivity.
+ */
+function debouncedAutoSave(schedule) {
+    if (autoSaveTimer) clearTimeout(autoSaveTimer)
+    autoSaveTimer = setTimeout(() => {
+        autoSaveTimer = null
+        autoSaveToDrive(schedule)
+    }, 3000)
 }
 
 /**
@@ -701,7 +787,7 @@ function runScheduler() {
             storeScheduleParams(startDate, weeks, daysOff)
             scheduleModified = false
             updateSaveButtonUnsaved(false)
-            autoSaveToDrive(schedule)
+            debouncedAutoSave(schedule)
         })
         .catch(error => {
             console.error("Error generating schedule:", error)
@@ -1018,7 +1104,7 @@ function handleCSVImport(event) {
         updateSaveButtonUnsaved(false)
         ui.scheduleOutput.classList.remove("hidden")
         ui.importCsvInput.value = ""
-        autoSaveToDrive(schedule)
+        debouncedAutoSave(schedule)
     }
     reader.readAsText(file)
 }
@@ -1187,6 +1273,7 @@ function displaySchedule(schedule) {
             }
         }
     })
+    displayScheduleSummary(schedule)
 }
 
 /**
@@ -1242,6 +1329,50 @@ function downloadCSV(csv, filename) {
  * The main entry point for the application. This function is called once the DOM is fully loaded.
  * It caches DOM elements and attaches all necessary event listeners.
  */
+async function refreshHolidayDropdown() {
+    if (!ui.loadHolidaysSelect) return
+    try {
+        const token = AuthManager.getToken()
+        if (!token) return
+        const holidays = await DriveStorage.listHolidays(token)
+        ui.loadHolidaysSelect.innerHTML = '<option value="">Load saved holidays...</option>'
+        for (const h of holidays) {
+            const opt = document.createElement('option')
+            opt.value = h.id
+            opt.textContent = h.name
+            ui.loadHolidaysSelect.appendChild(opt)
+        }
+        if (ui.deleteHolidayBtn) {
+            ui.deleteHolidayBtn.classList.toggle('hidden', holidays.length === 0)
+        }
+    } catch (e) {
+        console.warn('Could not list holidays:', e)
+    }
+}
+
+function populateDaysOff(holidays) {
+    if (!Array.isArray(holidays) || holidays.length === 0) return
+    // Clear existing
+    const rows = ui.daysOffContainer.querySelectorAll('.flex')
+    rows.forEach((row, i) => {
+        if (i === 0) {
+            row.querySelector('.day-off-input').value = ''
+        } else {
+            row.remove()
+        }
+    })
+    // Populate
+    holidays.forEach((dateStr, i) => {
+        if (i === 0) {
+            ui.daysOffContainer.querySelector('.day-off-input').value = dateStr
+        } else {
+            const newRow = ui.dayOffTemplate.content.cloneNode(true)
+            newRow.querySelector('.day-off-input').value = dateStr
+            ui.daysOffContainer.appendChild(newRow)
+        }
+    })
+}
+
 function initialize() {
     // --- Cache all DOM elements into the ui object for efficient access ---
     ui.form = document.getElementById("schedule-form")
@@ -1272,6 +1403,13 @@ function initialize() {
     ui.loadDriveBtn = document.getElementById("load-drive-btn")
     ui.toastContainer = document.getElementById("toast-container")
     ui.undoBtn = document.getElementById("undo-btn")
+    ui.clearDaysOffBtn = document.getElementById("clear-days-off")
+    ui.loadingProgressText = document.getElementById("loading-progress-text")
+    ui.scheduleSummary = document.getElementById("schedule-summary")
+    ui.holidaysSection = document.getElementById("holidays-section")
+    ui.saveHolidaysBtn = document.getElementById("save-holidays-btn")
+    ui.loadHolidaysSelect = document.getElementById("load-holidays-select")
+    ui.deleteHolidayBtn = document.getElementById("delete-holiday-btn")
     if (ui.undoBtn) ui.undoBtn.addEventListener('click', performUndo)
 
     // --- Attach Event Listeners ---
@@ -1412,7 +1550,7 @@ function initialize() {
         runScheduler()
     })
     ui.saveCsvBtn.addEventListener("click", () => {
-        exportTableToCSV("musical-lesson-schedule.csv")
+        exportTableToCSV(`salk-schedule-${new Date().toISOString().slice(0,10)}.csv`)
     })
     ui.startDateInput.addEventListener("change", () => {
         checkStartDateWarning()
@@ -1444,6 +1582,78 @@ function initialize() {
             e.target.parentElement.remove()
         }
     })
+    if (ui.clearDaysOffBtn) {
+        ui.clearDaysOffBtn.addEventListener("click", () => {
+            // Remove all added day-off rows (keep the first one) and clear its value
+            const rows = ui.daysOffContainer.querySelectorAll('.flex')
+            rows.forEach((row, i) => {
+                if (i === 0) {
+                    row.querySelector('.day-off-input').value = ''
+                } else {
+                    row.remove()
+                }
+            })
+        })
+    }
+
+    // --- Holiday Listeners ---
+    if (ui.saveHolidaysBtn) {
+        ui.saveHolidaysBtn.addEventListener("click", async () => {
+            const dates = Array.from(document.querySelectorAll('.day-off-input'))
+                .map(i => i.value).filter(Boolean)
+            if (dates.length === 0) {
+                showToast('No days off to save.', 'error')
+                return
+            }
+            const name = prompt('Name for this holiday list:')
+            if (!name || !name.trim()) return
+            try {
+                const token = await AuthManager.ensureAccessToken()
+                await DriveStorage.saveHolidays(token, name.trim(), dates)
+                showToast(`Holiday list "${name.trim()}" saved`)
+                refreshHolidayDropdown()
+            } catch (e) {
+                showToast('Could not save holidays.', 'error')
+                console.error('Holiday save error:', e)
+            }
+        })
+    }
+    if (ui.loadHolidaysSelect) {
+        ui.loadHolidaysSelect.addEventListener("change", async () => {
+            const fileId = ui.loadHolidaysSelect.value
+            if (!fileId) return
+            try {
+                const token = await AuthManager.ensureAccessToken()
+                const holidays = await DriveStorage.loadHoliday(token, fileId)
+                populateDaysOff(holidays)
+                showToast('Holidays loaded', 'info')
+            } catch (e) {
+                showToast('Could not load holidays.', 'error')
+                console.error('Holiday load error:', e)
+            }
+            ui.loadHolidaysSelect.value = ''
+        })
+    }
+    if (ui.deleteHolidayBtn) {
+        ui.deleteHolidayBtn.addEventListener("click", async () => {
+            const fileId = ui.loadHolidaysSelect.value
+            if (!fileId) {
+                showToast('Select a holiday list to delete first.', 'error')
+                return
+            }
+            const name = ui.loadHolidaysSelect.options[ui.loadHolidaysSelect.selectedIndex].textContent
+            if (!confirm(`Delete holiday list "${name}"?`)) return
+            try {
+                const token = await AuthManager.ensureAccessToken()
+                await DriveStorage.deleteHoliday(token, fileId)
+                showToast(`Holiday list "${name}" deleted`)
+                refreshHolidayDropdown()
+            } catch (e) {
+                showToast('Could not delete holidays.', 'error')
+                console.error('Holiday delete error:', e)
+            }
+        })
+    }
 
     // --- Auth & Drive Listeners ---
     if (ui.signInBtn) {

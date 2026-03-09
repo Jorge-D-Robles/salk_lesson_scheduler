@@ -69,7 +69,9 @@ self.onmessage = function (e) {
             case 'buildSchedule': {
                 const { startDate, dayCycle, daysOff, weeks, scheduleHistory } = payload
                 const builder = new ScheduleBuilder(startDate, dayCycle, daysOff, weeks, scheduleHistory)
-                const schedule = builder.buildSchedule()
+                const schedule = builder.buildSchedule((data) => {
+                    self.postMessage({ id, type: 'progress', data })
+                })
                 result = {
                     schedule: serializeSchedule(schedule),
                     achievedDayRule: builder.achievedDayRule,

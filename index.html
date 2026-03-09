@@ -378,7 +378,36 @@
                                     >
                                         +
                                     </button>
+                                    <button
+                                        type="button"
+                                        id="clear-days-off"
+                                        class="bg-gray-300 hover:bg-gray-400 text-gray-700 text-sm font-medium py-2 px-3 rounded-lg transition duration-300"
+                                    >
+                                        Clear
+                                    </button>
                                 </div>
+                            </div>
+                            <div id="holidays-section" class="hidden mt-3 flex items-center space-x-2">
+                                <button
+                                    type="button"
+                                    id="save-holidays-btn"
+                                    class="bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium py-1.5 px-3 rounded-lg transition duration-300"
+                                >
+                                    Save holidays
+                                </button>
+                                <select
+                                    id="load-holidays-select"
+                                    class="rounded-md border-gray-300 shadow-sm text-sm p-1.5"
+                                >
+                                    <option value="">Load saved holidays...</option>
+                                </select>
+                                <button
+                                    type="button"
+                                    id="delete-holiday-btn"
+                                    class="hidden bg-red-500 hover:bg-red-600 text-white text-sm font-medium py-1.5 px-3 rounded-lg transition duration-300"
+                                >
+                                    Delete
+                                </button>
                             </div>
                         </div>
 
@@ -477,13 +506,16 @@
                     class="hidden flex-col justify-center items-center my-12"
                 >
                     <div class="custom-loader"></div>
-                    <p class="mt-4 text-gray-500 text-sm font-medium animate-pulse">Generating schedule...</p>
+                    <p id="loading-progress-text" class="mt-4 text-gray-500 text-sm font-medium animate-pulse">Generating schedule...</p>
                 </div>
 
                 <div id="schedule-output" class="hidden mt-8">
                     <div class="flex items-center justify-between mb-4">
                         <h2 class="text-2xl font-semibold">Generated Schedule</h2>
                         <button id="undo-btn" class="hidden bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium py-1.5 px-4 rounded-lg transition duration-300" title="Undo last edit">&#8630; Undo</button>
+                    </div>
+                    <div id="schedule-summary" class="hidden mb-4 bg-indigo-50 rounded-lg p-4">
+                        <div id="summary-content" class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm"></div>
                     </div>
                     <div
                         class="table-container border border-gray-200 rounded-lg"

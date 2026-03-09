@@ -91,5 +91,77 @@ const DriveStorage = (() => {
         });
     }
 
-    return { saveSchedule, loadSchedule, deleteSchedule };
+    const HOLIDAY_PREFIX = 'salk_holidays_';
+
+    async function findHolidayFiles(token) {
+        const params = new URLSearchParams({
+            spaces: 'appDataFolder',
+            q: `name contains '${HOLIDAY_PREFIX}'`,
+            fields: 'files(id,name)',
+            orderBy: 'name',
+        });
+        const resp = await apiCall(`${DRIVE_API}/files?${params}`, token);
+        const data = await resp.json();
+        return data.files || [];
+    }
+
+    async function saveHolidays(token, name, holidays) {
+        const fileName = HOLIDAY_PREFIX + name + '.json';
+        const jsonBody = JSON.stringify(holidays);
+
+        // Check if file already exists
+        const files = await findHolidayFiles(token);
+        const existing = files.find(f => f.name === fileName);
+
+        if (existing) {
+            await apiCall(`${UPLOAD_API}/files/${existing.id}?uploadType=media`, token, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: jsonBody,
+            });
+        } else {
+            const metadata = {
+                name: fileName,
+                parents: ['appDataFolder'],
+            };
+            const boundary = 'salk_holiday_' + Date.now();
+            const body = [
+                `--${boundary}`,
+                'Content-Type: application/json; charset=UTF-8',
+                '',
+                JSON.stringify(metadata),
+                `--${boundary}`,
+                'Content-Type: application/json',
+                '',
+                jsonBody,
+                `--${boundary}--`,
+            ].join('\r\n');
+            await apiCall(`${UPLOAD_API}/files?uploadType=multipart`, token, {
+                method: 'POST',
+                headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+                body: body,
+            });
+        }
+    }
+
+    async function listHolidays(token) {
+        const files = await findHolidayFiles(token);
+        return files.map(f => ({
+            id: f.id,
+            name: f.name.replace(HOLIDAY_PREFIX, '').replace(/\.json$/, ''),
+        }));
+    }
+
+    async function loadHoliday(token, fileId) {
+        const resp = await apiCall(`${DRIVE_API}/files/${fileId}?alt=media`, token);
+        return resp.json();
+    }
+
+    async function deleteHoliday(token, fileId) {
+        await apiCall(`${DRIVE_API}/files/${fileId}`, token, {
+            method: 'DELETE',
+        });
+    }
+
+    return { saveSchedule, loadSchedule, deleteSchedule, saveHolidays, listHolidays, loadHoliday, deleteHoliday };
 })();
