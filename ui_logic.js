@@ -102,6 +102,17 @@ function showToast(message, type = 'success', action = null) {
     ui.toastContainer.appendChild(toast)
 }
 
+function showLoading() {
+    ui.loadingIndicator.classList.remove("hidden")
+    ui.loadingIndicator.style.display = "flex"
+    ui.scheduleOutput.classList.add("hidden")
+}
+
+function hideLoading() {
+    ui.loadingIndicator.classList.add("hidden")
+    ui.loadingIndicator.style.display = ""
+}
+
 function dismissPopover() {
     if (activePopover) {
         activePopover.remove()
@@ -145,19 +156,34 @@ function handleDayAction(dayIndex, action) {
     pushUndo()
     if (action === 'skip') {
         currentSchedule = skipDay(currentSchedule, dayIndex)
+        displaySchedule(currentSchedule)
+        ui.scheduleOutput.classList.remove('hidden')
+        scheduleModified = true
+        updateSaveButtonUnsaved(true)
+        showToast('Schedule modified. Save to Drive to keep changes.', 'info')
     } else if (action === 'recalculate') {
         if (!currentScheduleParams) {
             showToast('Cannot recalculate: original parameters not available.', 'error')
             return
         }
-        const result = recalculateFromDay(currentSchedule, dayIndex, currentScheduleParams)
-        currentSchedule = result.schedule
+        showLoading()
+        setTimeout(() => {
+            try {
+                const result = recalculateFromDay(currentSchedule, dayIndex, currentScheduleParams)
+                currentSchedule = result.schedule
+                displaySchedule(currentSchedule)
+                ui.scheduleOutput.classList.remove('hidden')
+                scheduleModified = true
+                updateSaveButtonUnsaved(true)
+                showToast('Schedule modified. Save to Drive to keep changes.', 'info')
+            } catch (error) {
+                console.error('Error recalculating schedule:', error)
+                showToast(`Recalculation failed: ${error.message}`, 'error')
+            } finally {
+                hideLoading()
+            }
+        }, 50)
     }
-    displaySchedule(currentSchedule)
-    ui.scheduleOutput.classList.remove('hidden')
-    scheduleModified = true
-    updateSaveButtonUnsaved(true)
-    showToast('Schedule modified. Save to Drive to keep changes.', 'info')
 }
 
 function updateSaveButtonUnsaved(unsaved) {
@@ -561,8 +587,7 @@ async function autoSaveToDrive(schedule) {
  */
 function runScheduler() {
     clearUndoStack()
-    ui.loadingIndicator.classList.remove("hidden")
-    ui.scheduleOutput.classList.add("hidden")
+    showLoading()
     ui.generateBtn.disabled = true
 
     // Use a small timeout to allow the browser to render the loading indicator
@@ -594,7 +619,7 @@ function runScheduler() {
                 `An error occurred: ${error.message}. Please check your inputs.`
             )
         } finally {
-            ui.loadingIndicator.classList.add("hidden")
+            hideLoading()
             ui.scheduleOutput.classList.remove("hidden")
             runAllValidations() // Re-validate to update button state correctly.
         }
