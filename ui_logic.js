@@ -113,6 +113,15 @@ function hideLoading() {
     ui.loadingIndicator.style.display = ""
 }
 
+/**
+ * Ensures the browser has painted the current DOM state before running a
+ * callback. A double requestAnimationFrame guarantees a frame has been
+ * committed — setTimeout alone does not.
+ */
+function afterPaint(callback) {
+    requestAnimationFrame(() => requestAnimationFrame(callback))
+}
+
 function dismissPopover() {
     if (activePopover) {
         activePopover.remove()
@@ -167,7 +176,7 @@ function handleDayAction(dayIndex, action) {
             return
         }
         showLoading()
-        setTimeout(() => {
+        afterPaint(() => {
             try {
                 const result = recalculateFromDay(currentSchedule, dayIndex, currentScheduleParams)
                 currentSchedule = result.schedule
@@ -182,7 +191,7 @@ function handleDayAction(dayIndex, action) {
             } finally {
                 hideLoading()
             }
-        }, 50)
+        })
     }
 }
 
@@ -590,9 +599,9 @@ function runScheduler() {
     showLoading()
     ui.generateBtn.disabled = true
 
-    // Use a small timeout to allow the browser to render the loading indicator
-    // before starting the potentially intensive scheduling task.
-    setTimeout(() => {
+    // Double rAF ensures the browser has painted the loading spinner before
+    // starting the potentially intensive scheduling task.
+    afterPaint(() => {
         try {
             const params = getScheduleParameters()
             if (!params) return // Validation failed, so stop.
@@ -623,7 +632,7 @@ function runScheduler() {
             ui.scheduleOutput.classList.remove("hidden")
             runAllValidations() // Re-validate to update button state correctly.
         }
-    }, 250)
+    })
 }
 
 /**
