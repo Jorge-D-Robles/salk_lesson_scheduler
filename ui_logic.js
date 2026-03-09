@@ -113,13 +113,79 @@ function hideLoading() {
     ui.loadingIndicator.style.display = ""
 }
 
-/**
- * Ensures the browser has painted the current DOM state before running a
- * callback. A double requestAnimationFrame guarantees a frame has been
- * committed — setTimeout alone does not.
- */
-function afterPaint(callback) {
-    requestAnimationFrame(() => requestAnimationFrame(callback))
+// --- Web Worker for heavy schedule computation ---
+let schedulerWorker = null
+let workerRequestId = 0
+const pendingWorkerRequests = new Map()
+
+function getSchedulerWorker() {
+    if (!schedulerWorker) {
+        schedulerWorker = new Worker('scheduler_worker.js')
+        schedulerWorker.onmessage = function (e) {
+            const { id, result, error } = e.data
+            const pending = pendingWorkerRequests.get(id)
+            if (!pending) return
+            pendingWorkerRequests.delete(id)
+            if (error) {
+                pending.reject(new Error(error))
+            } else {
+                pending.resolve(result)
+            }
+        }
+        schedulerWorker.onerror = function (e) {
+            // Reject all pending requests on unrecoverable worker error
+            for (const [id, pending] of pendingWorkerRequests) {
+                pending.reject(new Error(e.message || 'Worker error'))
+            }
+            pendingWorkerRequests.clear()
+        }
+    }
+    return schedulerWorker
+}
+
+function postToWorker(type, payload) {
+    return new Promise((resolve, reject) => {
+        const id = ++workerRequestId
+        pendingWorkerRequests.set(id, { resolve, reject })
+        getSchedulerWorker().postMessage({ id, type, payload })
+    })
+}
+
+function toLocalDateString(d) {
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    return `${yyyy}-${mm}-${dd}`
+}
+
+function serializeScheduleForWorker(schedule) {
+    return schedule.map(entry => ({
+        date: toLocalDateString(entry.date),
+        dayCycle: entry.dayCycle,
+        lessons: entry.lessons.map(l => ({ period: l.period, group: l.group })),
+    }))
+}
+
+function serializeParamsForWorker(params) {
+    return {
+        originalEndDate: toLocalDateString(params.originalEndDate),
+        daysOff: params.daysOff || [],
+    }
+}
+
+function rehydrateSchedule(data) {
+    return data.map(item => {
+        const parts = item.date.split('-')
+        const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]))
+        const entry = new ScheduleEntry(date, item.dayCycle)
+        for (const lesson of item.lessons) {
+            const periodNum = parseInt(lesson.period.replace(/\D/g, ''), 10)
+            if (!isNaN(periodNum)) {
+                entry.addLesson(periodNum, lesson.group)
+            }
+        }
+        return entry
+    })
 }
 
 function dismissPopover() {
@@ -176,22 +242,28 @@ function handleDayAction(dayIndex, action) {
             return
         }
         showLoading()
-        afterPaint(() => {
-            try {
-                const result = recalculateFromDay(currentSchedule, dayIndex, currentScheduleParams)
-                currentSchedule = result.schedule
+        postToWorker('recalculateFromDay', {
+            schedule: serializeScheduleForWorker(currentSchedule),
+            dayIndex,
+            params: serializeParamsForWorker(currentScheduleParams),
+        })
+            .then(result => {
+                const schedule = rehydrateSchedule(result.schedule)
+                schedule.achievedDayRule = result.achievedDayRule
+                currentSchedule = schedule
                 displaySchedule(currentSchedule)
                 ui.scheduleOutput.classList.remove('hidden')
                 scheduleModified = true
                 updateSaveButtonUnsaved(true)
                 showToast('Schedule modified. Save to Drive to keep changes.', 'info')
-            } catch (error) {
+            })
+            .catch(error => {
                 console.error('Error recalculating schedule:', error)
                 showToast(`Recalculation failed: ${error.message}`, 'error')
-            } finally {
+            })
+            .finally(() => {
                 hideLoading()
-            }
-        })
+            })
     }
 }
 
@@ -296,10 +368,26 @@ function executeGroupSwap(sourceDayIndex, sourceLessonIndex, targetDayIndex, tar
                 return
             }
             pushUndo()
-            const result = recalculateAfterDay(currentSchedule, rebuildDayIndex, currentScheduleParams)
-            currentSchedule = result.schedule
-            displaySchedule(currentSchedule)
-            showToast('Schedule rebuilt from swapped day.', 'info')
+            showLoading()
+            postToWorker('recalculateAfterDay', {
+                schedule: serializeScheduleForWorker(currentSchedule),
+                dayIndex: rebuildDayIndex,
+                params: serializeParamsForWorker(currentScheduleParams),
+            })
+                .then(result => {
+                    const schedule = rehydrateSchedule(result.schedule)
+                    schedule.achievedDayRule = result.achievedDayRule
+                    currentSchedule = schedule
+                    displaySchedule(currentSchedule)
+                    showToast('Schedule rebuilt from swapped day.', 'info')
+                })
+                .catch(error => {
+                    console.error('Error rebuilding schedule:', error)
+                    showToast(`Rebuild failed: ${error.message}`, 'error')
+                })
+                .finally(() => {
+                    hideLoading()
+                })
         }
     })
 }
@@ -596,43 +684,36 @@ async function autoSaveToDrive(schedule) {
  */
 function runScheduler() {
     clearUndoStack()
+
+    const params = getScheduleParameters()
+    if (!params) return // Validation failed, so stop.
+    const { startDate, dayCycle, daysOff, weeks, scheduleHistory } = params
+
     showLoading()
     ui.generateBtn.disabled = true
 
-    // Double rAF ensures the browser has painted the loading spinner before
-    // starting the potentially intensive scheduling task.
-    afterPaint(() => {
-        try {
-            const params = getScheduleParameters()
-            if (!params) return // Validation failed, so stop.
-            const { startDate, dayCycle, daysOff, weeks, scheduleHistory } =
-                params
-            const scheduleBuilder = new ScheduleBuilder(
-                startDate,
-                dayCycle,
-                daysOff,
-                weeks,
-                scheduleHistory
-            )
-            const schedule = scheduleBuilder.buildSchedule()
-            schedule.achievedDayRule = scheduleBuilder.achievedDayRule
+    postToWorker('buildSchedule', { startDate, dayCycle, daysOff, weeks, scheduleHistory })
+        .then(result => {
+            const schedule = rehydrateSchedule(result.schedule)
+            schedule.achievedDayRule = result.achievedDayRule
             displaySchedule(schedule)
             currentSchedule = schedule
             storeScheduleParams(startDate, weeks, daysOff)
             scheduleModified = false
             updateSaveButtonUnsaved(false)
             autoSaveToDrive(schedule)
-        } catch (error) {
+        })
+        .catch(error => {
             console.error("Error generating schedule:", error)
             alert(
                 `An error occurred: ${error.message}. Please check your inputs.`
             )
-        } finally {
+        })
+        .finally(() => {
             hideLoading()
             ui.scheduleOutput.classList.remove("hidden")
-            runAllValidations() // Re-validate to update button state correctly.
-        }
-    })
+            runAllValidations()
+        })
 }
 
 /**
