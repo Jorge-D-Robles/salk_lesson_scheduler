@@ -1292,7 +1292,7 @@ function computeCellIssues(schedule) {
             for (let j = i - 1; j >= 0; j--) {
                 const prev = schedule[j]
                 const gap = Math.round((entry.date - prev.date) / 86400000)
-                if (gap > 28) break
+                if (gap >= 28) break
                 for (let lj = 0; lj < prev.lessons.length; lj++) {
                     const other = prev.lessons[lj]
                     if (other.group === 'MU') continue
