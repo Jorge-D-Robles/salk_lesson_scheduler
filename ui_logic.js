@@ -122,7 +122,7 @@ function updateLoadingProgress(data) {
     ui.loadingProgressText.textContent = `Trial ${data.trial}/${data.totalTrials} (${pct}%) — best score: ${data.bestScore}`
 }
 
-function displayScheduleSummary(schedule) {
+function displayScheduleSummary(schedule, cellIssues) {
     if (!ui.scheduleSummary || !schedule || schedule.length === 0) return
     const counts = {}
     for (const day of schedule) {
@@ -136,7 +136,8 @@ function displayScheduleSummary(schedule) {
     const maxCount = Math.max(...vals)
     const endSpread = maxCount - minCount
 
-    // Running balance: max spread at any day boundary
+    // Running balance: max spread at any day boundary (include 0-count groups)
+    const allGroups = Object.keys(counts)
     const running = {}
     let maxRunSpread = 0
     for (const day of schedule) {
@@ -144,7 +145,8 @@ function displayScheduleSummary(schedule) {
             if (lesson.group === 'MU') continue
             running[lesson.group] = (running[lesson.group] || 0) + 1
         }
-        const rVals = Object.values(running)
+        const rVals = []
+        for (const g of allGroups) rVals.push(running[g] || 0)
         if (rVals.length > 0) {
             const spread = Math.max(...rVals) - Math.min(...rVals)
             if (spread > maxRunSpread) maxRunSpread = spread
@@ -171,6 +173,78 @@ function displayScheduleSummary(schedule) {
             <div class="text-gray-600">Lessons/Group</div>
         </div>
     `
+
+    // Build violations section from cellIssues
+    let violationsHTML = ''
+    if (cellIssues && cellIssues.size > 0) {
+        // Aggregate by violation type and collect affected day indices
+        const periodDays = new Set()
+        const weeklyDays = new Set()
+        const balanceDays = new Set()
+        for (const [key, msgs] of cellIssues) {
+            const dayIdx = parseInt(key.split('-')[0], 10)
+            for (const msg of msgs) {
+                if (msg.startsWith('28-day')) periodDays.add(dayIdx)
+                else if (msg.startsWith('Weekly')) weeklyDays.add(dayIdx)
+                else if (msg.startsWith('Running')) balanceDays.add(dayIdx)
+            }
+        }
+
+        const makeDayLinks = (dayIndices) => {
+            const sorted = [...dayIndices].sort((a, b) => a - b)
+            return sorted.map(idx => {
+                const d = schedule[idx].date
+                const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                return `<a href="#" class="violation-day-link text-blue-600 hover:text-blue-800 underline" data-day-index="${idx}">${label}</a>`
+            }).join(', ')
+        }
+
+        const lines = []
+        if (periodDays.size > 0) {
+            lines.push(`<div class="flex items-start gap-2"><span class="text-red-600 font-semibold whitespace-nowrap">28-day conflicts: ${periodDays.size}</span><span class="text-gray-600">— ${makeDayLinks(periodDays)}</span></div>`)
+        }
+        if (weeklyDays.size > 0) {
+            lines.push(`<div class="flex items-start gap-2"><span class="text-red-600 font-semibold whitespace-nowrap">Weekly duplicates: ${weeklyDays.size}</span><span class="text-gray-600">— ${makeDayLinks(weeklyDays)}</span></div>`)
+        }
+        if (balanceDays.size > 0) {
+            lines.push(`<div class="flex items-start gap-2"><span class="text-amber-600 font-semibold whitespace-nowrap">Balance issues: ${balanceDays.size}</span><span class="text-gray-600">— ${makeDayLinks(balanceDays)}</span></div>`)
+        }
+
+        violationsHTML = `
+            <div id="summary-violations" class="mt-3 pt-3 border-t border-red-200 bg-red-50 rounded-md p-3 text-sm">
+                <div class="font-semibold text-red-700 mb-1">Violations</div>
+                ${lines.join('\n')}
+            </div>`
+    } else {
+        violationsHTML = `
+            <div id="summary-violations" class="mt-3 pt-3 border-t border-green-200 bg-green-50 rounded-md p-3 text-sm">
+                <span class="font-semibold text-green-700">No violations</span>
+            </div>`
+    }
+
+    // Remove old violations section if present, then append new one
+    const oldViolations = ui.scheduleSummary.querySelector('#summary-violations')
+    if (oldViolations) oldViolations.remove()
+    summaryContent.insertAdjacentHTML('afterend', violationsHTML)
+
+    // Attach click handlers for violation day links
+    const links = ui.scheduleSummary.querySelectorAll('.violation-day-link')
+    links.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault()
+            const dayIdx = parseInt(link.dataset.dayIndex, 10)
+            const row = document.getElementById(`schedule-row-${dayIdx}`)
+            if (row) {
+                row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                row.style.transition = 'background-color 0.3s'
+                row.style.backgroundColor = '#fef3c7'
+                setTimeout(() => {
+                    row.style.backgroundColor = ''
+                }, 1500)
+            }
+        })
+    })
+
     ui.scheduleSummary.classList.remove('hidden')
 }
 
@@ -1259,6 +1333,13 @@ function computeCellIssues(schedule) {
     }
 
     // 3) Running balance: flag lessons on days where spread > 1
+    // Collect all unique non-MU groups so 0-count groups are included in spread
+    const allGroups = new Set()
+    for (const day of schedule) {
+        for (const lesson of day.lessons) {
+            if (lesson.group !== 'MU') allGroups.add(lesson.group)
+        }
+    }
     const running = {}
     for (let i = 0; i < schedule.length; i++) {
         const entry = schedule[i]
@@ -1267,7 +1348,8 @@ function computeCellIssues(schedule) {
             if (group === 'MU') continue
             running[group] = (running[group] || 0) + 1
         }
-        const vals = Object.values(running)
+        const vals = []
+        for (const g of allGroups) vals.push(running[g] || 0)
         if (vals.length > 0) {
             const spread = Math.max(...vals) - Math.min(...vals)
             if (spread > 1) {
@@ -1312,6 +1394,7 @@ function displaySchedule(schedule) {
         }
 
         const row = document.createElement("tr")
+        row.id = `schedule-row-${index}`
         const formattedDate = entry.date.toLocaleDateString(undefined, {
             weekday: "short",
             year: "numeric",
@@ -1354,7 +1437,7 @@ function displaySchedule(schedule) {
             }
         }
     })
-    displayScheduleSummary(schedule)
+    displayScheduleSummary(schedule, cellIssues)
 }
 
 /**
