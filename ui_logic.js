@@ -1200,7 +1200,88 @@ function getScheduleParameters() {
  * @param {Array<ScheduleEntry>} schedule - The schedule array from ScheduleBuilder.
  */
 function computeCellIssues(schedule) {
-    return new Map()
+    const issues = new Map()
+    const addIssue = (dayIdx, lessonIdx, msg) => {
+        const key = `${dayIdx}-${lessonIdx}`
+        if (!issues.has(key)) issues.set(key, [])
+        issues.get(key).push(msg)
+    }
+
+    // 1) 28-day period spacing: same group + same period within 28 calendar days
+    for (let i = 0; i < schedule.length; i++) {
+        const entry = schedule[i]
+        for (let li = 0; li < entry.lessons.length; li++) {
+            const lesson = entry.lessons[li]
+            if (lesson.group === 'MU') continue
+            const periodNum = parseInt(lesson.period.replace(/\D/g, ''), 10)
+            // Look back for conflicts within 28 calendar days
+            for (let j = i - 1; j >= 0; j--) {
+                const prev = schedule[j]
+                const gap = Math.round((entry.date - prev.date) / 86400000)
+                if (gap > 28) break
+                for (let lj = 0; lj < prev.lessons.length; lj++) {
+                    const other = prev.lessons[lj]
+                    if (other.group === 'MU') continue
+                    if (other.group === lesson.group) {
+                        const otherPeriod = parseInt(other.period.replace(/\D/g, ''), 10)
+                        if (otherPeriod === periodNum) {
+                            addIssue(i, li, `28-day period conflict: ${lesson.group} had Pd ${periodNum} on ${prev.date.toLocaleDateString()} (${gap}d ago)`)
+                            addIssue(j, lj, `28-day period conflict: ${other.group} has Pd ${periodNum} again on ${entry.date.toLocaleDateString()} (${gap}d later)`)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2) Weekly uniqueness: same group appearing twice in one calendar week
+    const weekMap = new Map() // weekId -> Map<group, [{dayIdx, lessonIdx}]>
+    for (let i = 0; i < schedule.length; i++) {
+        const entry = schedule[i]
+        const weekId = getWeekIdentifier(entry.date)
+        if (!weekMap.has(weekId)) weekMap.set(weekId, new Map())
+        const gm = weekMap.get(weekId)
+        for (let li = 0; li < entry.lessons.length; li++) {
+            const group = entry.lessons[li].group
+            if (group === 'MU') continue
+            if (!gm.has(group)) gm.set(group, [])
+            gm.get(group).push({ dayIdx: i, lessonIdx: li })
+        }
+    }
+    for (const [, gm] of weekMap) {
+        for (const [group, locs] of gm) {
+            if (locs.length > 1) {
+                for (const loc of locs) {
+                    addIssue(loc.dayIdx, loc.lessonIdx, `Weekly duplicate: ${group} appears ${locs.length}x this week`)
+                }
+            }
+        }
+    }
+
+    // 3) Running balance: flag lessons on days where spread > 1
+    const running = {}
+    for (let i = 0; i < schedule.length; i++) {
+        const entry = schedule[i]
+        for (let li = 0; li < entry.lessons.length; li++) {
+            const group = entry.lessons[li].group
+            if (group === 'MU') continue
+            running[group] = (running[group] || 0) + 1
+        }
+        const vals = Object.values(running)
+        if (vals.length > 0) {
+            const spread = Math.max(...vals) - Math.min(...vals)
+            if (spread > 1) {
+                // Mark all lessons on this day
+                for (let li = 0; li < entry.lessons.length; li++) {
+                    if (entry.lessons[li].group !== 'MU') {
+                        addIssue(i, li, `Running balance spread is ${spread} after this day`)
+                    }
+                }
+            }
+        }
+    }
+
+    return issues
 }
 
 function displaySchedule(schedule) {
