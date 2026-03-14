@@ -4,10 +4,10 @@
  * to maintain full-cycle fairness across all groups.
  */
 
-// --- Constants for Scheduling Rules ---
-const DAY1_PERIODS = [1, 4, 7, 8]
-const DAY2_PERIODS = [1, 2, 3, 7, 8]
-const REQUIRED_UNIQUE_GROUPS = 22
+// --- Constants for Scheduling Rules (aliased from SCHEDULE_CONFIG) ---
+const DAY1_PERIODS = SCHEDULE_CONFIG.DAY1_PERIODS
+const DAY2_PERIODS = SCHEDULE_CONFIG.DAY2_PERIODS
+const REQUIRED_UNIQUE_GROUPS = SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS
 
 class ScheduleEntry {
     constructor(date, dayCycle) {
@@ -16,7 +16,7 @@ class ScheduleEntry {
         this.lessons = []
     }
     addLesson(period, group) {
-        this.lessons.push({ period: `Pd ${period}`, group })
+        this.lessons.push({ period: `${SCHEDULE_CONFIG.PERIOD_PREFIX}${period}`, group })
     }
 }
 
@@ -46,18 +46,13 @@ class ScheduleBuilder {
             const groupsFromHistory = new Set(
                 scheduleHistory.map((item) => item.group).filter(Boolean)
             )
-            groupsFromHistory.delete("MU")
+            groupsFromHistory.delete(SCHEDULE_CONFIG.MU_TOKEN)
             this.LESSON_GROUPS =
                 groupsFromHistory.size === REQUIRED_UNIQUE_GROUPS
                     ? [...groupsFromHistory]
-                    : Array.from({ length: REQUIRED_UNIQUE_GROUPS }, (_, i) =>
-                          String.fromCharCode("A".charCodeAt(0) + i)
-                      )
+                    : [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES]
         } else {
-            this.LESSON_GROUPS = Array.from(
-                { length: REQUIRED_UNIQUE_GROUPS },
-                (_, i) => String.fromCharCode("A".charCodeAt(0) + i)
-            )
+            this.LESSON_GROUPS = [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES]
             // Shuffle group order deterministically based on start date
             // so different schedules rotate which groups land at cycle
             // boundaries (where most ordering violations occur).
@@ -116,14 +111,14 @@ class ScheduleBuilder {
                 !lesson.group ||
                 !lesson.period ||
                 !lesson.date ||
-                lesson.group === "MU"
+                lesson.group === SCHEDULE_CONFIG.MU_TOKEN
             )
                 return
             if (this.initialPeriodAssignments[lesson.group]) {
                 const parts = lesson.date.split("-").map((p) => parseInt(p, 10))
                 const historyDate = new Date(parts[0], parts[1] - 1, parts[2])
                 const periodNum = parseInt(
-                    String(lesson.period).replace("Pd ", ""),
+                    String(lesson.period).replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""),
                     10
                 )
                 const existingDate =
@@ -236,12 +231,12 @@ class ScheduleBuilder {
      */
     _solveDayAssignment(periods, candidateGroups, date, weekId, weeklyAssignments, periodAssignments, calendarFloor, runningCounts) {
         const numPeriods = periods.length
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
 
         const validGroupsPerPeriod = periods.map((period) => {
             const valid = []
             for (const group of candidateGroups) {
-                if (group === "MU") { valid.push(group); continue }
+                if (group === SCHEDULE_CONFIG.MU_TOKEN) { valid.push(group); continue }
                 if (weeklyAssignments.get(weekId)?.has(group)) continue
                 if (calendarFloor > 0) {
                     const lastDate = periodAssignments[group]?.[period]
@@ -253,8 +248,8 @@ class ScheduleBuilder {
             // Sort candidates. When runningCounts provided, prefer lower-count
             // groups first (for running balance). Otherwise staleness sort.
             valid.sort((a, b) => {
-                if (a === "MU") return 1
-                if (b === "MU") return -1
+                if (a === SCHEDULE_CONFIG.MU_TOKEN) return 1
+                if (b === SCHEDULE_CONFIG.MU_TOKEN) return -1
                 if (runningCounts) {
                     const ca = runningCounts[a] || 0
                     const cb = runningCounts[b] || 0
@@ -327,7 +322,7 @@ class ScheduleBuilder {
      * @private
      */
     _solveWeekAssignment(weekDays, candidateGroups, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts) {
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
 
         // Build flat slot list from all days in the week
         const slots = []
@@ -342,7 +337,7 @@ class ScheduleBuilder {
         const numDays = weekDays.length
 
         // Quick feasibility check: enough candidates + MU to fill all slots?
-        const realCandidates = candidateGroups.filter(g => g !== "MU").length
+        const realCandidates = candidateGroups.filter(g => g !== SCHEDULE_CONFIG.MU_TOKEN).length
         if (realCandidates + numDays < numSlots) return null
 
         // Pre-compute candidate index for fast lookup
@@ -353,7 +348,7 @@ class ScheduleBuilder {
         const validGroupsPerSlot = slots.map((slot, slotIndex) => {
             const valid = []
             for (const group of candidateGroups) {
-                if (group === "MU") { valid.push(group); continue }
+                if (group === SCHEDULE_CONFIG.MU_TOKEN) { valid.push(group); continue }
                 if (calendarFloor > 0) {
                     const lastDate = periodAssignments[group]?.[slot.period]
                     if (lastDate && Math.round((slot.date - lastDate) / oneDayMs) < calendarFloor) continue
@@ -368,8 +363,8 @@ class ScheduleBuilder {
             // MU always last.
             const slotDow = slot.date.getDay()
             valid.sort((a, b) => {
-                if (a === "MU") return 1
-                if (b === "MU") return -1
+                if (a === SCHEDULE_CONFIG.MU_TOKEN) return 1
+                if (b === SCHEDULE_CONFIG.MU_TOKEN) return -1
                 if (balanceCounts) {
                     const countA = balanceCounts[a] || 0
                     const countB = balanceCounts[b] || 0
@@ -429,7 +424,7 @@ class ScheduleBuilder {
                 if (assignment[i] !== null) continue
                 let count = 0
                 for (const g of validGroupsPerSlot[i]) {
-                    if (g === "MU") {
+                    if (g === SCHEDULE_CONFIG.MU_TOKEN) {
                         if (muPerDay[slots[i].dayIdx] < 1) count++
                     } else {
                         if (!usedGroups.has(g)) count++
@@ -448,8 +443,8 @@ class ScheduleBuilder {
             const slot = slots[idx]
 
             for (const group of validGroupsPerSlot[idx]) {
-                if (group === "MU") {
-                    if (muPerDay[slot.dayIdx] >= 1) continue
+                if (group === SCHEDULE_CONFIG.MU_TOKEN) {
+                    if (muPerDay[slot.dayIdx] >= SCHEDULE_CONFIG.MU_LIMIT_PER_DAY) continue
                     assignment[idx] = group
                     muPerDay[slot.dayIdx]++
                     assignedPerDay[slot.dayIdx]++
@@ -460,7 +455,7 @@ class ScheduleBuilder {
                         const tempCounts = {}
                         for (const g of allGroups) tempCounts[g] = runningCounts[g]
                         for (let i = 0; i < numSlots; i++) {
-                            if (assignment[i] && assignment[i] !== "MU" && slots[i].dayIdx <= slot.dayIdx) {
+                            if (assignment[i] && assignment[i] !== SCHEDULE_CONFIG.MU_TOKEN && slots[i].dayIdx <= slot.dayIdx) {
                                 tempCounts[assignment[i]]++
                             }
                         }
@@ -485,7 +480,7 @@ class ScheduleBuilder {
                         const tempCounts = {}
                         for (const g of allGroups) tempCounts[g] = runningCounts[g]
                         for (let i = 0; i < numSlots; i++) {
-                            if (assignment[i] && assignment[i] !== "MU" && slots[i].dayIdx <= slot.dayIdx) {
+                            if (assignment[i] && assignment[i] !== SCHEDULE_CONFIG.MU_TOKEN && slots[i].dayIdx <= slot.dayIdx) {
                                 tempCounts[assignment[i]]++
                             }
                         }
@@ -527,7 +522,7 @@ class ScheduleBuilder {
      * 3. Process results day-by-day: reorder by lastGlobalPos, update state
      * @private
      */
-    _constructSchedule(days, calendarFloor = 28, positionOffset = 0, dayStability = true) {
+    _constructSchedule(days, calendarFloor = SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR, positionOffset = 0, dayStability = true) {
         const schedule = []
         const weeklyAssignments = new Map()
         const periodAssignments = this._deepCopyAssignments()
@@ -603,9 +598,9 @@ class ScheduleBuilder {
 
             // Build candidate sets for each tier
             const candidateSets = [
-                [...pendingAll, "MU"],
-                [...pendingAll, ...nextAll, "MU"],
-                [...allAvailable, "MU"],
+                [...pendingAll, SCHEDULE_CONFIG.MU_TOKEN],
+                [...pendingAll, ...nextAll, SCHEDULE_CONFIG.MU_TOKEN],
+                [...allAvailable, SCHEDULE_CONFIG.MU_TOKEN],
             ]
 
             // Try ALL tiers with balance constraint first
@@ -630,7 +625,7 @@ class ScheduleBuilder {
             // Tier 4: reduced floor (21-day minimum spacing)
             if (!result) {
                 result = this._solveWeekAssignment(
-                    weekDays, [...allAvailable, "MU"], periodAssignments, 21, prevPositions, balanceCounts, prevDayOfWeek
+                    weekDays, [...allAvailable, SCHEDULE_CONFIG.MU_TOKEN], periodAssignments, SCHEDULE_CONFIG.REDUCED_SPACING_FLOOR, prevPositions, balanceCounts, prevDayOfWeek
                 )
             }
 
@@ -645,14 +640,14 @@ class ScheduleBuilder {
             // Balance-first reordering: assign groups to days in count order,
             // then verify period feasibility via per-day solver.
             {
-                const oneDayMs2 = 86400000
+                const oneDayMs2 = SCHEDULE_CONFIG.ONE_DAY_MS
 
                 // Collect non-MU groups from week solver and count MU per day
                 const wsGroups = new Set()
                 const muPerDay = weekDays.map(() => 0)
                 for (let d = 0; d < weekDays.length; d++) {
                     for (const a of dayResults[d]) {
-                        if (a.group === "MU") muPerDay[d]++
+                        if (a.group === SCHEDULE_CONFIG.MU_TOKEN) muPerDay[d]++
                         else wsGroups.add(a.group)
                     }
                 }
@@ -689,7 +684,7 @@ class ScheduleBuilder {
                     const needMU = day.periods.length - groups.length
 
                     let candidates = [...groups]
-                    for (let m = 0; m < needMU; m++) candidates.push("MU")
+                    for (let m = 0; m < needMU; m++) candidates.push(SCHEDULE_CONFIG.MU_TOKEN)
 
                     let solved = this._solveDayAssignment(
                         day.periods, candidates, day.date, weekId,
@@ -712,7 +707,7 @@ class ScheduleBuilder {
                                 dayGroupSets[lp.fromDay][lpIdx] = origGroup
 
                                 candidates = [...groups]
-                                for (let m = 0; m < needMU; m++) candidates.push("MU")
+                                for (let m = 0; m < needMU; m++) candidates.push(SCHEDULE_CONFIG.MU_TOKEN)
                                 solved = this._solveDayAssignment(
                                     day.periods, candidates, day.date, weekId,
                                     tempWeeklyMap, periodAssignments, calendarFloor
@@ -730,7 +725,7 @@ class ScheduleBuilder {
 
                     newResults.push(solved)
                     for (const { group } of solved) {
-                        if (group !== "MU") tempWeeklyMap.get(weekId).add(group)
+                        if (group !== SCHEDULE_CONFIG.MU_TOKEN) tempWeeklyMap.get(weekId).add(group)
                     }
                 }
 
@@ -747,15 +742,15 @@ class ScheduleBuilder {
                 const dayType = day.dayCycle % 2 === 0 ? 2 : 1
                 const dayResult = dayResults[i]
 
-                const nonMU = dayResult.filter(a => a.group !== "MU")
-                const mu = dayResult.filter(a => a.group === "MU")
+                const nonMU = dayResult.filter(a => a.group !== SCHEDULE_CONFIG.MU_TOKEN)
+                const mu = dayResult.filter(a => a.group === SCHEDULE_CONFIG.MU_TOKEN)
 
                 nonMU.sort((a, b) => lastGlobalPos[a.group] - lastGlobalPos[b.group])
 
                 const dayEntry = new ScheduleEntry(day.date, dayType)
                 for (const { period, group } of [...nonMU, ...mu]) {
                     dayEntry.addLesson(period, group)
-                    if (group !== "MU") {
+                    if (group !== SCHEDULE_CONFIG.MU_TOKEN) {
                         weeklyUsed.add(group)
                         if (!periodAssignments[group]) periodAssignments[group] = {}
                         periodAssignments[group][period] = day.date
@@ -781,7 +776,7 @@ class ScheduleBuilder {
                 const dow = weekDays[i].date.getDay()
                 const sorted = [...dayResult].sort((a, b) => a.period - b.period)
                 for (const { group } of sorted) {
-                    if (group !== "MU") {
+                    if (group !== SCHEDULE_CONFIG.MU_TOKEN) {
                         prevPositions[group] = pos
                         if (dayStability) prevDayOfWeek[group] = dow
                     }
@@ -823,7 +818,7 @@ class ScheduleBuilder {
 
     /** Check if a group+period assignment would conflict with schedule history. @private */
     _hasHistoricalConflict(group, periodNum, date, dayRule) {
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
         const histDate = this.initialPeriodAssignments?.[group]?.[periodNum]
         return histDate && Math.round(Math.abs((date - histDate) / oneDayMs)) < dayRule
     }
@@ -834,7 +829,7 @@ class ScheduleBuilder {
      * @private
      */
     _repairViolations(schedule, calendarFloor) {
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
 
         const findViolations = () => {
             const violations = []
@@ -842,7 +837,7 @@ class ScheduleBuilder {
             for (let d = 0; d < schedule.length; d++) {
                 const day = schedule[d]
                 for (const lesson of day.lessons) {
-                    if (lesson.group === "MU") continue
+                    if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
                     const p = lesson.period
                     if (!history[lesson.group]) history[lesson.group] = {}
                     if (!history[lesson.group][p]) history[lesson.group][p] = []
@@ -855,7 +850,7 @@ class ScheduleBuilder {
                     occ.sort((a, b) => a.date - b.date)
                     // Check first occurrence against historical period assignment
                     if (occ.length > 0) {
-                        const periodNum = parseInt(period.replace("Pd ", ""), 10)
+                        const periodNum = parseInt(period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                         if (this._hasHistoricalConflict(group, periodNum, occ[0].date, calendarFloor)) {
                             violations.push({ group, period, dayIdx: occ[0].dayIdx })
                         }
@@ -885,7 +880,7 @@ class ScheduleBuilder {
             for (let li = 0; li < dayEntry.lessons.length; li++) {
                 if (li === lessonIdx) continue
                 const other = dayEntry.lessons[li]
-                if (other.group === "MU") continue
+                if (other.group === SCHEDULE_CONFIG.MU_TOKEN) continue
 
                 // Swap groups between the two lessons (keep periods)
                 const g1 = dayEntry.lessons[lessonIdx].group
@@ -918,7 +913,7 @@ class ScheduleBuilder {
      * @private
      */
     _repairRunningBalance(schedule, calendarFloor) {
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
         const allGroups = this.LESSON_GROUPS
         const G = allGroups.length
 
@@ -929,7 +924,7 @@ class ScheduleBuilder {
             for (let d = 0; d < schedule.length; d++) {
                 if (dayWeekIds[d] !== weekId) continue
                 for (const l of schedule[d].lessons) {
-                    if (l.group !== "MU") groups.add(l.group)
+                    if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) groups.add(l.group)
                 }
             }
             if (this.initialWeeklyGroups && schedule.length > 0 && dayWeekIds[0] === weekId) {
@@ -946,7 +941,7 @@ class ScheduleBuilder {
                 if (dist >= calendarFloor) continue
                 for (const l of schedule[d].lessons) {
                     if (l.group === group) {
-                        const p = parseInt(l.period.replace("Pd ", ""), 10)
+                        const p = parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                         if (p === periodNum) return false
                     }
                 }
@@ -962,7 +957,7 @@ class ScheduleBuilder {
             let violationDay = -1
             for (let d = 0; d < schedule.length; d++) {
                 for (const l of schedule[d].lessons) {
-                    if (l.group !== "MU") prev[l.group]++
+                    if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) prev[l.group]++
                 }
                 rc.push({ ...prev })
                 if (violationDay === -1) {
@@ -989,7 +984,7 @@ class ScheduleBuilder {
                 for (let d1 = violationDay; d1 >= 0 && !improved; d1--) {
                     const li1 = schedule[d1].lessons.findIndex(l => l.group === hg)
                     if (li1 === -1) continue
-                    const p1 = parseInt(schedule[d1].lessons[li1].period.replace("Pd ", ""), 10)
+                    const p1 = parseInt(schedule[d1].lessons[li1].period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                     const wk1 = dayWeekIds[d1]
 
                     for (const lg of lowGroups) {
@@ -997,7 +992,7 @@ class ScheduleBuilder {
                         for (let d2 = violationDay + 1; d2 < schedule.length && !improved; d2++) {
                             const li2 = schedule[d2].lessons.findIndex(l => l.group === lg)
                             if (li2 === -1) continue
-                            const p2 = parseInt(schedule[d2].lessons[li2].period.replace("Pd ", ""), 10)
+                            const p2 = parseInt(schedule[d2].lessons[li2].period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                             const wk2 = dayWeekIds[d2]
 
                             // Weekly uniqueness
@@ -1053,17 +1048,17 @@ class ScheduleBuilder {
 
                 for (let li = 0; li < schedule[violationDay].lessons.length && !improved; li++) {
                     const lesson = schedule[violationDay].lessons[li]
-                    if (lesson.group === "MU") continue
+                    if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
                     if (rc[violationDay][lesson.group] !== maxC) continue
-                    const p1 = parseInt(lesson.period.replace("Pd ", ""), 10)
+                    const p1 = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
 
                     for (const od of weekDays) {
                         if (improved) break
                         for (let oj = 0; oj < schedule[od].lessons.length; oj++) {
                             const other = schedule[od].lessons[oj]
-                            if (other.group === "MU") continue
+                            if (other.group === SCHEDULE_CONFIG.MU_TOKEN) continue
                             if (rc[violationDay][other.group] >= maxC) continue
-                            const p2 = parseInt(other.period.replace("Pd ", ""), 10)
+                            const p2 = parseInt(other.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                             const skipSet = new Set([violationDay, od])
                             if (p1 === p2) {
                                 if (!check28Day(lesson.group, p1, schedule[od].date, skipSet)) continue
@@ -1097,7 +1092,7 @@ class ScheduleBuilder {
      * @private
      */
     _unblockPeriods(schedule, calendarFloor) {
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
         const allGroups = this.LESSON_GROUPS
 
         const check28Day = (group, periodNum, date, skipDays) => {
@@ -1108,7 +1103,7 @@ class ScheduleBuilder {
                 if (dist >= calendarFloor) continue
                 for (const l of schedule[d].lessons) {
                     if (l.group === group) {
-                        const p = parseInt(l.period.replace("Pd ", ""), 10)
+                        const p = parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                         if (p === periodNum) return false
                     }
                 }
@@ -1122,7 +1117,7 @@ class ScheduleBuilder {
         let violationDay = -1
         for (let d = 0; d < schedule.length; d++) {
             for (const l of schedule[d].lessons) {
-                if (l.group !== "MU") counts[l.group]++
+                if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++
             }
             const vals = Object.values(counts)
             if (Math.max(...vals) - Math.min(...vals) > 1) {
@@ -1138,7 +1133,7 @@ class ScheduleBuilder {
 
         const vDate = schedule[violationDay].date
         const vPeriods = schedule[violationDay].lessons.map(l =>
-            parseInt(l.period.replace("Pd ", ""), 10)
+            parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
         )
 
         for (const lg of lowGroups) {
@@ -1155,7 +1150,7 @@ class ScheduleBuilder {
                     if (dist >= calendarFloor) continue
 
                     const lgIdx = schedule[d_block].lessons.findIndex(l =>
-                        l.group === lg && parseInt(l.period.replace("Pd ", ""), 10) === targetP
+                        l.group === lg && parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10) === targetP
                     )
                     if (lgIdx === -1) continue
 
@@ -1163,9 +1158,9 @@ class ScheduleBuilder {
                     for (let oj = 0; oj < schedule[d_block].lessons.length; oj++) {
                         if (oj === lgIdx) continue
                         const other = schedule[d_block].lessons[oj]
-                        if (other.group === "MU") continue
+                        if (other.group === SCHEDULE_CONFIG.MU_TOKEN) continue
 
-                        const otherP = parseInt(other.period.replace("Pd ", ""), 10)
+                        const otherP = parseInt(other.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                         if (otherP === targetP) continue
 
                         const skipSet = new Set([d_block])
@@ -1185,11 +1180,11 @@ class ScheduleBuilder {
                             if (ddDist >= calendarFloor) continue
                             for (const l of schedule[dd].lessons) {
                                 if (l.group === lg) {
-                                    const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                    const p = parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                                     if (p === otherP) { ok = false; break }
                                 }
                                 if (l.group === schedule[d_block].lessons[lgIdx].group) {
-                                    const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                    const p = parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                                     if (p === targetP) { ok = false; break }
                                 }
                             }
@@ -1216,7 +1211,7 @@ class ScheduleBuilder {
      * @private
      */
     _balanceLessonCounts(schedule, dayRule) {
-        const oneDayMs = 86400000
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
         const firstWeekId = schedule.length > 0
             ? this.getWeekIdentifier(schedule[0].date) : null
 
@@ -1228,7 +1223,7 @@ class ScheduleBuilder {
             for (const s of schedule) {
                 if (this.getWeekIdentifier(s.date) === weekId) {
                     for (const l of s.lessons) {
-                        if (l.group !== "MU") groups.add(l.group)
+                        if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) groups.add(l.group)
                     }
                 }
             }
@@ -1243,7 +1238,7 @@ class ScheduleBuilder {
             const counts = this._getAdjustedCounts()
             for (const day of schedule) {
                 for (const l of day.lessons) {
-                    if (l.group !== "MU") counts[l.group]++
+                    if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++
                 }
             }
 
@@ -1266,9 +1261,9 @@ class ScheduleBuilder {
 
                 for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                     const lesson = day.lessons[li]
-                    if (lesson.group === "MU" || counts[lesson.group] !== maxC) continue
+                    if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN || counts[lesson.group] !== maxC) continue
 
-                    const periodNum = parseInt(lesson.period.replace("Pd ", ""), 10)
+                    const periodNum = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
 
                     const sortedCandidates = [...this.LESSON_GROUPS]
                         .sort((a, b) => counts[a] - counts[b])
@@ -1285,7 +1280,7 @@ class ScheduleBuilder {
                             if (s === day) continue
                             for (const l of s.lessons) {
                                 if (l.group === candidate) {
-                                    const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                    const p = parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                                     if (p === periodNum && Math.round(Math.abs((day.date - s.date) / oneDayMs)) < dayRule) {
                                         tooClose = true
                                     }
@@ -1318,7 +1313,7 @@ class ScheduleBuilder {
             const counts = this._getAdjustedCounts()
             for (const day of schedule) {
                 for (const l of day.lessons) {
-                    if (l.group !== "MU") counts[l.group]++
+                    if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++
                 }
             }
             let maxC = Math.max(...Object.values(counts))
@@ -1333,9 +1328,9 @@ class ScheduleBuilder {
 
                     for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                         const lesson = day.lessons[li]
-                        if (lesson.group !== "MU") continue
+                        if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN) continue
 
-                        const periodNum = parseInt(lesson.period.replace("Pd ", ""), 10)
+                        const periodNum = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                         const sortedCandidates = [...this.LESSON_GROUPS]
                             .sort((a, b) => counts[a] - counts[b])
 
@@ -1351,7 +1346,7 @@ class ScheduleBuilder {
                                 if (s === day) continue
                                 for (const l of s.lessons) {
                                     if (l.group === candidate) {
-                                        const p = parseInt(l.period.replace("Pd ", ""), 10)
+                                        const p = parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
                                         if (p === periodNum && Math.round(Math.abs((day.date - s.date) / oneDayMs)) < dayRule) {
                                             tooClose = true
                                         }
@@ -1377,7 +1372,7 @@ class ScheduleBuilder {
             const counts = this._getAdjustedCounts()
             for (const day of schedule) {
                 for (const l of day.lessons) {
-                    if (l.group !== "MU") counts[l.group]++
+                    if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++
                 }
             }
             let maxC = Math.max(...Object.values(counts))
@@ -1387,15 +1382,15 @@ class ScheduleBuilder {
                 for (let d = schedule.length - 1; d >= 0 && maxC - minC > 1; d--) {
                     const day = schedule[d]
                     // Only if this day doesn't already have MU
-                    if (day.lessons.some(l => l.group === "MU")) continue
+                    if (day.lessons.some(l => l.group === SCHEDULE_CONFIG.MU_TOKEN)) continue
 
                     for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                         const lesson = day.lessons[li]
-                        if (lesson.group === "MU") continue
+                        if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
                         if (counts[lesson.group] !== maxC) continue
 
                         const oldGroup = lesson.group
-                        lesson.group = "MU"
+                        lesson.group = SCHEDULE_CONFIG.MU_TOKEN
 
                         counts[oldGroup]--
                         maxC = Math.max(...Object.values(counts))
@@ -1410,7 +1405,7 @@ class ScheduleBuilder {
         const counts = this._getAdjustedCounts()
         for (const d of schedule) {
             for (const l of d.lessons) {
-                if (l.group !== "MU") counts[l.group]++
+                if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++
             }
         }
         const vals = Object.values(counts)
@@ -1423,7 +1418,7 @@ class ScheduleBuilder {
         let violations = 0
         for (const d of schedule) {
             for (const l of d.lessons) {
-                if (l.group !== "MU") counts[l.group]++
+                if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++
             }
             const vals = Object.values(counts)
             if (Math.max(...vals) - Math.min(...vals) > 1) violations++
@@ -1441,11 +1436,13 @@ class ScheduleBuilder {
         let bestScore = Infinity // lower is better: running balance violations * 1000 + end spread
         let trialNum = 0
 
+        const spacingFloor = SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR
+
         const tryConstruction = (offset, dayStab) => {
-            let schedule = this._constructSchedule(days, 28, offset, dayStab)
-            if (!schedule) schedule = this._constructSchedule(days, 21, offset, dayStab)
+            let schedule = this._constructSchedule(days, spacingFloor, offset, dayStab)
+            if (!schedule) schedule = this._constructSchedule(days, SCHEDULE_CONFIG.REDUCED_SPACING_FLOOR, offset, dayStab)
             if (schedule) {
-                this._repairViolations(schedule, 28)
+                this._repairViolations(schedule, spacingFloor)
                 const rbv = this._runningBalanceViolations(schedule)
                 const endSpread = this._combinedBalanceSpread(schedule)
                 const score = rbv * 1000 + endSpread
@@ -1455,14 +1452,14 @@ class ScheduleBuilder {
                 }
             }
             trialNum++
-            if (progress) progress({ trial: trialNum, totalTrials: 44, bestScore })
+            if (progress) progress({ trial: trialNum, totalTrials: SCHEDULE_CONFIG.TOTAL_TRIALS, bestScore })
         }
 
         tryConstruction(0, true)
         tryConstruction(0, false)
 
         if (bestScore > 0) {
-            for (let offset = 1; offset < 22; offset++) {
+            for (let offset = 1; offset < REQUIRED_UNIQUE_GROUPS; offset++) {
                 tryConstruction(offset, true)
                 tryConstruction(offset, false)
                 if (bestScore <= 1) break
@@ -1471,16 +1468,16 @@ class ScheduleBuilder {
 
         if (!bestSchedule) return []
 
-        this.achievedDayRule = 28
+        this.achievedDayRule = spacingFloor
 
         // Repair remaining running balance violations
-        this._repairRunningBalance(bestSchedule, 28)
+        this._repairRunningBalance(bestSchedule, spacingFloor)
 
         // If violations remain, try period unblocking + re-repair
         for (let attempt = 0; attempt < 5; attempt++) {
             if (this._runningBalanceViolations(bestSchedule) === 0) break
-            if (!this._unblockPeriods(bestSchedule, 28)) break
-            this._repairRunningBalance(bestSchedule, 28)
+            if (!this._unblockPeriods(bestSchedule, spacingFloor)) break
+            this._repairRunningBalance(bestSchedule, spacingFloor)
         }
 
         // Run _balanceLessonCounts only if it doesn't worsen running balance
@@ -1488,7 +1485,7 @@ class ScheduleBuilder {
         const endSpread = this._combinedBalanceSpread(bestSchedule)
         if (endSpread > 1) {
             const saved = bestSchedule.map(d => d.lessons.map(l => l.group))
-            this._balanceLessonCounts(bestSchedule, 28)
+            this._balanceLessonCounts(bestSchedule, spacingFloor)
             const rbAfter = this._runningBalanceViolations(bestSchedule)
             if (rbAfter > rbBefore) {
                 for (let i = 0; i < bestSchedule.length; i++) {
@@ -1498,11 +1495,11 @@ class ScheduleBuilder {
                 }
             } else if (rbAfter > 0) {
                 // Balance pass may have introduced violations — try to fix
-                this._repairRunningBalance(bestSchedule, 28)
+                this._repairRunningBalance(bestSchedule, spacingFloor)
                 for (let attempt = 0; attempt < 3; attempt++) {
                     if (this._runningBalanceViolations(bestSchedule) === 0) break
-                    if (!this._unblockPeriods(bestSchedule, 28)) break
-                    this._repairRunningBalance(bestSchedule, 28)
+                    if (!this._unblockPeriods(bestSchedule, spacingFloor)) break
+                    this._repairRunningBalance(bestSchedule, spacingFloor)
                 }
             }
         }
@@ -1536,7 +1533,7 @@ function recalculateFromDay(schedule, dayIndex, params) {
     const newStartStr = `${newStart.getFullYear()}-${String(newStart.getMonth() + 1).padStart(2, '0')}-${String(newStart.getDate()).padStart(2, '0')}`
 
     const nextDayCycle = deletedDay.dayCycle + 1
-    const remainingWeeks = Math.max(1, Math.ceil((params.originalEndDate - newStart) / (7 * 86400000)))
+    const remainingWeeks = Math.max(1, Math.ceil((params.originalEndDate - newStart) / (7 * SCHEDULE_CONFIG.ONE_DAY_MS)))
     const filteredDaysOff = params.daysOff.filter(d => d >= newStartStr)
 
     const builder = new ScheduleBuilder(newStartStr, nextDayCycle, filteredDaysOff, remainingWeeks, history.length > 0 ? history : null)
@@ -1566,7 +1563,7 @@ function recalculateAfterDay(schedule, dayIndex, params) {
     const newStartStr = `${newStart.getFullYear()}-${String(newStart.getMonth() + 1).padStart(2, '0')}-${String(newStart.getDate()).padStart(2, '0')}`
 
     const nextDayCycle = lastKeptDay.dayCycle + 1
-    const remainingWeeks = Math.max(1, Math.ceil((params.originalEndDate - newStart) / (7 * 86400000)))
+    const remainingWeeks = Math.max(1, Math.ceil((params.originalEndDate - newStart) / (7 * SCHEDULE_CONFIG.ONE_DAY_MS)))
     const filteredDaysOff = params.daysOff.filter(d => d >= newStartStr)
 
     const builder = new ScheduleBuilder(newStartStr, nextDayCycle, filteredDaysOff, remainingWeeks, history.length > 0 ? history : null)

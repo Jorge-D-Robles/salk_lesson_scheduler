@@ -5,7 +5,7 @@
  * @param {number} [minDays=14] Minimum days between same group/period.
  */
 const assertNo28DayConflicts = (schedule, initialAssignments = {}, minDays = 14) => {
-    const oneDayInMilliseconds = 1000 * 60 * 60 * 24
+    const oneDayInMilliseconds = SCHEDULE_CONFIG.ONE_DAY_MS
     const lastSeen = JSON.parse(JSON.stringify(initialAssignments))
 
     for (const group in lastSeen) {
@@ -17,7 +17,7 @@ const assertNo28DayConflicts = (schedule, initialAssignments = {}, minDays = 14)
     schedule.forEach((dayEntry) => {
         dayEntry.lessons.forEach((lesson) => {
             const { group, period } = lesson
-            if (group.startsWith("MU")) return
+            if (group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) return
 
             if (!lastSeen[group]) lastSeen[group] = {}
             const lastTimeInPeriod = lastSeen[group][period]
@@ -62,7 +62,7 @@ const assertNoWeeklyConflicts = (schedule) => {
 
         dayEntry.lessons.forEach((lesson) => {
             const { group } = lesson
-            if (group === "MU") return
+            if (group === SCHEDULE_CONFIG.MU_TOKEN) return
 
             expect(weeklyGroups.has(group)).toBe(
                 false,
@@ -84,9 +84,9 @@ const assertNoMUClustering = (schedule) => {
         let hasBackToBackMU = false
 
         for (let i = 0; i < lessons.length; i++) {
-            if (lessons[i].group.startsWith("MU")) {
+            if (lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) {
                 muCount++
-                if (i > 0 && lessons[i - 1].group.startsWith("MU")) {
+                if (i > 0 && lessons[i - 1].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) {
                     hasBackToBackMU = true
                 }
             }
@@ -113,7 +113,7 @@ const assertBalancedUsage = (schedule) => {
 
     schedule.forEach((day) => {
         day.lessons.forEach((lesson) => {
-            if (lesson.group !== "MU") {
+            if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN) {
                 groupCounts.set(
                     lesson.group,
                     (groupCounts.get(lesson.group) || 0) + 1
@@ -149,9 +149,8 @@ const assertBalancedUsage = (schedule) => {
     const failureDetails = `Usage Imbalance: Group '${maxGroup}' was scheduled ${maxCount} times, while group '${minGroup}' was only scheduled ${minCount} times.
     Full Distribution: { ${allCounts} }`
 
-    const ACCEPTABLE_DIFFERENCE = 1
     expect(maxCount - minCount).toBeLessThanOrEqual(
-        ACCEPTABLE_DIFFERENCE,
+        SCHEDULE_CONFIG.END_BALANCE_THRESHOLD,
         failureDetails
     )
 }
@@ -361,7 +360,7 @@ describe("ScheduleBuilder", () => {
                 1,
                 historyData
             )
-            expect(scheduleBuilder.LESSON_GROUPS.length).toBe(22)
+            expect(scheduleBuilder.LESSON_GROUPS.length).toBe(SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS)
             expect(scheduleBuilder.LESSON_GROUPS.sort()).toEqual(
                 FULL_GROUP_LIST.sort()
             )
@@ -386,9 +385,7 @@ describe("ScheduleBuilder", () => {
         })
 
         it("should fall back to default groups if history is null or empty", () => {
-            const defaultGroups = Array.from({ length: 22 }, (_, i) =>
-                String.fromCharCode("A".charCodeAt(0) + i)
-            )
+            const defaultGroups = [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES]
             const builder1 = new ScheduleBuilder("2025-09-01", 1, [], 1, null)
             expect(builder1.LESSON_GROUPS).toEqual(defaultGroups)
             const builder2 = new ScheduleBuilder("2025-09-01", 1, [], 1, [])

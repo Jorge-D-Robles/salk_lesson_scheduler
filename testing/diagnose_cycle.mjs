@@ -10,7 +10,7 @@
  */
 import { loadScheduler, analyzeCycleViolations } from './helpers.mjs';
 
-const { ScheduleBuilder } = loadScheduler();
+const { ScheduleBuilder, SCHEDULE_CONFIG } = loadScheduler();
 
 const levittownBase = [
     '2025-09-23', '2025-09-24', '2025-10-02', '2025-10-13', '2025-10-20',
@@ -78,7 +78,7 @@ function analyzeScenario(desc, cycle, daysOff) {
     const seq = [];
     for (const day of schedule) {
         for (const lesson of day.lessons) {
-            if (lesson.group !== 'MU') {
+            if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN) {
                 seq.push({ group: lesson.group, period: lesson.period, date: day.date });
             }
         }

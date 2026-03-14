@@ -6,7 +6,7 @@
 
 // Helper: assert no same-group/period conflict within N days
 const assertNoDayRuleConflicts = (schedule, dayRule, initialAssignments = {}) => {
-    const oneDayMs = 1000 * 60 * 60 * 24
+    const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
     const lastSeen = JSON.parse(JSON.stringify(initialAssignments))
     for (const group in lastSeen) {
         for (const period in lastSeen[group]) {
@@ -16,7 +16,7 @@ const assertNoDayRuleConflicts = (schedule, dayRule, initialAssignments = {}) =>
     schedule.forEach((dayEntry) => {
         dayEntry.lessons.forEach((lesson) => {
             const { group, period } = lesson
-            if (group === "MU") return
+            if (group === SCHEDULE_CONFIG.MU_TOKEN) return
             if (!lastSeen[group]) lastSeen[group] = {}
             const last = lastSeen[group][period]
             if (last) {
@@ -42,7 +42,7 @@ const assertScheduleNotEmpty = (schedule, description) => {
 // Helper: assert every scheduled day has ALL its period slots filled
 const assertAllSlotsFilled = (schedule) => {
     schedule.forEach((dayEntry) => {
-        const expectedSlots = dayEntry.dayCycle === 1 ? 4 : 5
+        const expectedSlots = dayEntry.dayCycle === 1 ? SCHEDULE_CONFIG.DAY1_PERIODS.length : SCHEDULE_CONFIG.DAY2_PERIODS.length
         expect(dayEntry.lessons.length).toBe(
             expectedSlots,
             `Day ${dayEntry.date.toDateString()} (cycle ${dayEntry.dayCycle}) has ${dayEntry.lessons.length} lessons, expected ${expectedSlots}.`

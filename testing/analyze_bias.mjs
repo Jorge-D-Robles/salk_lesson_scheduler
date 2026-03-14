@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const { ScheduleBuilder } = loadScheduler();
+const { ScheduleBuilder, SCHEDULE_CONFIG } = loadScheduler();
 
 const levittownBase = [
     '2025-09-23', '2025-09-24', '2025-10-02', '2025-10-13', '2025-10-20',
@@ -25,7 +25,7 @@ const levittownBase = [
     '2026-05-25', '2026-05-27', '2026-06-19',
 ];
 
-const allGroups = Array.from({ length: 22 }, (_, i) => String.fromCharCode(65 + i));
+const allGroups = [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES];
 
 // --- Generate all school days for picking random absences ---
 function getSchoolDays() {
@@ -210,7 +210,7 @@ for (const t of realisticTests) {
         allGroups.forEach(g => counts[g] = 0);
         for (const day of schedule) {
             for (const l of day.lessons) {
-                if (l.group !== 'MU' && counts[l.group] !== undefined) {
+                if (l.group !== SCHEDULE_CONFIG.MU_TOKEN && counts[l.group] !== undefined) {
                     counts[l.group]++;
                     groupTotals[l.group]++;
                 }

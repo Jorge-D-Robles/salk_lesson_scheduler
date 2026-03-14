@@ -3,7 +3,7 @@
  * Handles buildSchedule, recalculateFromDay, and recalculateAfterDay operations.
  */
 
-importScripts('scheduler.js')
+importScripts('schedule_config.js', 'scheduler.js')
 
 /**
  * Converts a date string (YYYY-MM-DD) to a local-midnight Date object.

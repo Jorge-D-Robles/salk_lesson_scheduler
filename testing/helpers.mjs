@@ -9,16 +9,19 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const CONFIG_PATH = join(__dirname, '..', 'schedule_config.js');
 const SCHEDULER_PATH = join(__dirname, '..', 'scheduler.js');
-
-const ONE_DAY_MS = 86400000;
 
 /** Load ScheduleBuilder from scheduler.js using dynamic eval. */
 export function loadScheduler() {
+    const configCode = readFileSync(CONFIG_PATH, 'utf8');
     const code = readFileSync(SCHEDULER_PATH, 'utf8');
-    const fn = new Function(code + '\nreturn { ScheduleBuilder, ScheduleEntry, skipDay, recalculateFromDay };');
+    const fn = new Function(configCode + '\n' + code + '\nreturn { ScheduleBuilder, ScheduleEntry, skipDay, recalculateFromDay, SCHEDULE_CONFIG };');
     return fn();
 }
+
+const { SCHEDULE_CONFIG: _cfg } = loadScheduler();
+const ONE_DAY_MS = _cfg.ONE_DAY_MS;
 
 /** Generate weekday date strings (YYYY-MM-DD) in a range (inclusive). */
 export function weekdaysInRange(startStr, endStr) {
@@ -59,7 +62,7 @@ export function runChecks(schedule, builder) {
 
     // All slots filled
     schedule.forEach(d => {
-        const expected = d.dayCycle === 1 ? 4 : 5;
+        const expected = d.dayCycle === 1 ? _cfg.DAY1_PERIODS.length : _cfg.DAY2_PERIODS.length;
         if (d.lessons.length !== expected)
             issues.push(`SLOTS:${d.date.toDateString()} (${d.lessons.length}!=${expected})`);
     });
@@ -67,10 +70,10 @@ export function runChecks(schedule, builder) {
     // 28-day calendar spacing: same group+period not within 28 calendar days
     const lastSeen = {};
     schedule.forEach(d => d.lessons.forEach(l => {
-        if (l.group === 'MU') return;
+        if (l.group === _cfg.MU_TOKEN) return;
         if (!lastSeen[l.group]) lastSeen[l.group] = {};
         const last = lastSeen[l.group][l.period];
-        if (last && Math.round((d.date - last) / ONE_DAY_MS) < 28)
+        if (last && Math.round((d.date - last) / ONE_DAY_MS) < _cfg.CALENDAR_SPACING_FLOOR)
             issues.push(`28DAY:${l.group} ${l.period}`);
         lastSeen[l.group][l.period] = d.date;
     }));
@@ -85,7 +88,7 @@ export function runChecks(schedule, builder) {
         const wk = mon.toDateString();
         if (!weeks.has(wk)) weeks.set(wk, new Set());
         d.lessons.forEach(l => {
-            if (l.group === 'MU') return;
+            if (l.group === _cfg.MU_TOKEN) return;
             if (weeks.get(wk).has(l.group)) issues.push(`WEEKLY:${l.group}`);
             weeks.get(wk).add(l.group);
         });
@@ -93,16 +96,16 @@ export function runChecks(schedule, builder) {
 
     // MU clustering (max 1 per day)
     schedule.forEach(d => {
-        if (d.lessons.filter(l => l.group === 'MU').length > 1) issues.push('MU');
+        if (d.lessons.filter(l => l.group === _cfg.MU_TOKEN).length > 1) issues.push('MU');
     });
 
     // Balance (max-min lesson count across groups ≤ 1)
     const counts = new Map();
     schedule.forEach(d => d.lessons.forEach(l => {
-        if (l.group !== 'MU') counts.set(l.group, (counts.get(l.group) || 0) + 1);
+        if (l.group !== _cfg.MU_TOKEN) counts.set(l.group, (counts.get(l.group) || 0) + 1);
     }));
     const vals = [...counts.values()];
-    if (vals.length > 0 && Math.max(...vals) - Math.min(...vals) > 1)
+    if (vals.length > 0 && Math.max(...vals) - Math.min(...vals) > _cfg.RUNNING_BALANCE_THRESHOLD)
         issues.push(`BALANCE:${Math.max(...vals) - Math.min(...vals)}`);
 
     // Running balance: spread ≤ 1 at every day boundary
@@ -123,11 +126,11 @@ export function checkRunningBalance(schedule, allGroups) {
     const violations = [];
     for (let i = 0; i < schedule.length; i++) {
         for (const l of schedule[i].lessons) {
-            if (l.group !== 'MU') counts[l.group]++;
+            if (l.group !== _cfg.MU_TOKEN) counts[l.group]++;
         }
         const vals = Object.values(counts);
         const spread = Math.max(...vals) - Math.min(...vals);
-        if (spread > 1) {
+        if (spread > _cfg.RUNNING_BALANCE_THRESHOLD) {
             violations.push({ dayIndex: i, spread });
         }
     }
@@ -141,7 +144,7 @@ export function checkRunningBalance(schedule, allGroups) {
  * - summary: human-readable summary string
  */
 export function analyzeCycleViolations(schedule, builder) {
-    const seq = schedule.flatMap(d => d.lessons).filter(l => l.group !== 'MU').map(l => l.group);
+    const seq = schedule.flatMap(d => d.lessons).filter(l => l.group !== _cfg.MU_TOKEN).map(l => l.group);
     const allGroups = builder.LESSON_GROUPS;
     const result = { violations: 0, details: [], summary: '' };
 

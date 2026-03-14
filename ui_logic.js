@@ -127,7 +127,7 @@ function displayScheduleSummary(schedule, cellIssues) {
     const counts = {}
     for (const day of schedule) {
         for (const lesson of day.lessons) {
-            if (lesson.group === 'MU') continue
+            if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
             counts[lesson.group] = (counts[lesson.group] || 0) + 1
         }
     }
@@ -142,7 +142,7 @@ function displayScheduleSummary(schedule, cellIssues) {
     let maxRunSpread = 0
     for (const day of schedule) {
         for (const lesson of day.lessons) {
-            if (lesson.group === 'MU') continue
+            if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
             running[lesson.group] = (running[lesson.group] || 0) + 1
         }
         const rVals = []
@@ -184,7 +184,7 @@ function displayScheduleSummary(schedule, cellIssues) {
         for (const [key, msgs] of cellIssues) {
             const dayIdx = parseInt(key.split('-')[0], 10)
             for (const msg of msgs) {
-                if (msg.startsWith('28-day')) periodDays.add(dayIdx)
+                if (msg.startsWith(`${SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR}-day`)) periodDays.add(dayIdx)
                 else if (msg.startsWith('Weekly')) weeklyDays.add(dayIdx)
                 else if (msg.startsWith('Running')) balanceDays.add(dayIdx)
             }
@@ -201,7 +201,7 @@ function displayScheduleSummary(schedule, cellIssues) {
 
         const lines = []
         if (periodDays.size > 0) {
-            lines.push(`<div class="flex items-start gap-2"><span class="text-red-600 font-semibold whitespace-nowrap">28-day conflicts: ${periodDays.size}</span><span class="text-gray-600">— ${makeDayLinks(periodDays)}</span></div>`)
+            lines.push(`<div class="flex items-start gap-2"><span class="text-red-600 font-semibold whitespace-nowrap">${SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR}-day conflicts: ${periodDays.size}</span><span class="text-gray-600">— ${makeDayLinks(periodDays)}</span></div>`)
         }
         if (weeklyDays.size > 0) {
             lines.push(`<div class="flex items-start gap-2"><span class="text-red-600 font-semibold whitespace-nowrap">Weekly duplicates: ${weeklyDays.size}</span><span class="text-gray-600">— ${makeDayLinks(weeklyDays)}</span></div>`)
@@ -442,7 +442,7 @@ function findWeeklyViolations(sourceDayIndex, targetDayIndex, groupA, groupB) {
         { group: groupB, destIndex: sourceDayIndex, fromIndex: targetDayIndex },
     ]
     for (const { group, destIndex, fromIndex } of pairs) {
-        if (group.startsWith('MU')) continue
+        if (group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) continue
         const destWeek = getWeekIdentifier(currentSchedule[destIndex].date)
         for (let i = 0; i < currentSchedule.length; i++) {
             if (i === destIndex || i === fromIndex) continue
@@ -460,12 +460,12 @@ function findWeeklyViolations(sourceDayIndex, targetDayIndex, groupA, groupB) {
 }
 
 function findMUViolations(dayIndex, lessonIndex, newGroup) {
-    if (!newGroup.startsWith('MU')) return []
+    if (!newGroup.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) return []
     const entry = currentSchedule[dayIndex]
     let muCount = 0
     for (let i = 0; i < entry.lessons.length; i++) {
         if (i === lessonIndex) continue
-        if (entry.lessons[i].group.startsWith('MU')) muCount++
+        if (entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) muCount++
     }
     if (muCount >= 1) {
         const conflictDate = entry.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -936,7 +936,7 @@ function runAllValidations() {
             "mt-2 p-3 rounded-md text-sm bg-red-50 text-red-700"
     } else {
         ui.validationBox.classList.remove("hidden")
-        ui.validationBox.innerHTML = `✅ All checks pass. Found ${uniqueGroupCount} of 22 required unique groups.`
+        ui.validationBox.innerHTML = `✅ All checks pass. Found ${uniqueGroupCount} of ${SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS} required unique groups.`
         ui.validationBox.className =
             "mt-2 p-3 rounded-md text-sm bg-green-50 text-green-800"
     }
@@ -1049,7 +1049,7 @@ function validateHistory(text) {
                     }:</b> Group name is missing.`
                 )
             } else {
-                if (group.toUpperCase() !== "MU") {
+                if (group.toUpperCase() !== SCHEDULE_CONFIG.MU_TOKEN) {
                     uniqueGroups.add(group)
                 }
                 parsedLessons.push({ date: dateObj, period, group })
@@ -1057,9 +1057,9 @@ function validateHistory(text) {
         }
     }
 
-    if (uniqueGroups.size !== 22) {
+    if (uniqueGroups.size !== SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS) {
         errors.push(
-            `<b>Overall:</b> Found ${uniqueGroups.size} unique groups. The schedule requires exactly <b>22</b> unique non-MU groups.`
+            `<b>Overall:</b> Found ${uniqueGroups.size} unique groups. The schedule requires exactly <b>${SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS}</b> unique non-MU groups.`
         )
     }
     if (parsedLessons.length > 0) {
@@ -1069,7 +1069,7 @@ function validateHistory(text) {
         const uniqueDayCount = uniqueDayStrings.size
         if (uniqueDayCount < 20) {
             errors.push(
-                `<b>Overall:</b> History must contain at least 4 weeks of lessons (~20 school days). Found ${uniqueDayCount} days.`
+                `<b>Overall:</b> History must contain at least ${SCHEDULE_CONFIG.HISTORY_WEEKS} weeks of lessons (~20 school days). Found ${uniqueDayCount} days.`
             )
         }
         if (uniqueDayCount > 40) {
@@ -1286,21 +1286,21 @@ function computeCellIssues(schedule) {
         const entry = schedule[i]
         for (let li = 0; li < entry.lessons.length; li++) {
             const lesson = entry.lessons[li]
-            if (lesson.group === 'MU') continue
+            if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
             const periodNum = parseInt(lesson.period.replace(/\D/g, ''), 10)
             // Look back for conflicts within 28 calendar days
             for (let j = i - 1; j >= 0; j--) {
                 const prev = schedule[j]
-                const gap = Math.round((entry.date - prev.date) / 86400000)
-                if (gap >= 28) break
+                const gap = Math.round((entry.date - prev.date) / SCHEDULE_CONFIG.ONE_DAY_MS)
+                if (gap >= SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR) break
                 for (let lj = 0; lj < prev.lessons.length; lj++) {
                     const other = prev.lessons[lj]
-                    if (other.group === 'MU') continue
+                    if (other.group === SCHEDULE_CONFIG.MU_TOKEN) continue
                     if (other.group === lesson.group) {
                         const otherPeriod = parseInt(other.period.replace(/\D/g, ''), 10)
                         if (otherPeriod === periodNum) {
-                            addIssue(i, li, `28-day period conflict: ${lesson.group} had Pd ${periodNum} on ${prev.date.toLocaleDateString()} (${gap}d ago)`)
-                            addIssue(j, lj, `28-day period conflict: ${other.group} has Pd ${periodNum} again on ${entry.date.toLocaleDateString()} (${gap}d later)`)
+                            addIssue(i, li, `${SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR}-day period conflict: ${lesson.group} had Pd ${periodNum} on ${prev.date.toLocaleDateString()} (${gap}d ago)`)
+                            addIssue(j, lj, `${SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR}-day period conflict: ${other.group} has Pd ${periodNum} again on ${entry.date.toLocaleDateString()} (${gap}d later)`)
                         }
                     }
                 }
@@ -1317,7 +1317,7 @@ function computeCellIssues(schedule) {
         const gm = weekMap.get(weekId)
         for (let li = 0; li < entry.lessons.length; li++) {
             const group = entry.lessons[li].group
-            if (group === 'MU') continue
+            if (group === SCHEDULE_CONFIG.MU_TOKEN) continue
             if (!gm.has(group)) gm.set(group, [])
             gm.get(group).push({ dayIdx: i, lessonIdx: li })
         }
@@ -1337,7 +1337,7 @@ function computeCellIssues(schedule) {
     const allGroups = new Set()
     for (const day of schedule) {
         for (const lesson of day.lessons) {
-            if (lesson.group !== 'MU') allGroups.add(lesson.group)
+            if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN) allGroups.add(lesson.group)
         }
     }
     const running = {}
@@ -1345,7 +1345,7 @@ function computeCellIssues(schedule) {
         const entry = schedule[i]
         for (let li = 0; li < entry.lessons.length; li++) {
             const group = entry.lessons[li].group
-            if (group === 'MU') continue
+            if (group === SCHEDULE_CONFIG.MU_TOKEN) continue
             running[group] = (running[group] || 0) + 1
         }
         const vals = []
@@ -1355,7 +1355,7 @@ function computeCellIssues(schedule) {
             if (spread > 1) {
                 // Mark all lessons on this day
                 for (let li = 0; li < entry.lessons.length; li++) {
-                    if (entry.lessons[li].group !== 'MU') {
+                    if (entry.lessons[li].group !== SCHEDULE_CONFIG.MU_TOKEN) {
                         addIssue(i, li, `Running balance spread is ${spread} after this day`)
                     }
                 }
@@ -1370,7 +1370,7 @@ function displaySchedule(schedule) {
     ui.scheduleTableBody.innerHTML = ""
 
     if (schedule.length === 0) {
-        ui.scheduleTableBody.innerHTML = `<tr><td colspan="13" class="text-center py-4">No schedule generated. Check dates and days off.</td></tr>`
+        ui.scheduleTableBody.innerHTML = `<tr><td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="text-center py-4">No schedule generated. Check dates and days off.</td></tr>`
         return
     }
 
@@ -1378,17 +1378,17 @@ function displaySchedule(schedule) {
 
     let currentWeekIdentifier = getWeekIdentifier(schedule[0].date)
     let fourWeekBoundary = new Date(schedule[0].date.getTime())
-    fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
+    fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
 
     schedule.forEach((entry, index) => {
         // Sort lessons by period number for display
-        entry.lessons.sort((a, b) => parseInt(a.period.replace("Pd ", ""), 10) - parseInt(b.period.replace("Pd ", ""), 10))
+        entry.lessons.sort((a, b) => parseInt(a.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10) - parseInt(b.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10))
 
         const entryWeekIdentifier = getWeekIdentifier(entry.date)
         if (entryWeekIdentifier !== currentWeekIdentifier) {
             const spacerRow = document.createElement("tr")
             spacerRow.className = "bg-gray-200 weekly-spacer"
-            spacerRow.innerHTML = `<td colspan="13" class="py-1"></td>`
+            spacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1"></td>`
             ui.scheduleTableBody.appendChild(spacerRow)
             currentWeekIdentifier = entryWeekIdentifier
         }
@@ -1403,9 +1403,9 @@ function displaySchedule(schedule) {
         })
 
         let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700">${entry.dayCycle}</td>`
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < SCHEDULE_CONFIG.MAX_PERIODS_PER_DAY; i++) {
             if (entry.lessons[i]) {
-                const groupClass = entry.lessons[i].group.startsWith("MU")
+                const groupClass = entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
                     ? "text-red-600"
                     : "text-gray-800"
                 const issues = cellIssues.get(`${index}-${i}`)
@@ -1431,9 +1431,9 @@ function displaySchedule(schedule) {
             ) {
                 const cycleSpacerRow = document.createElement("tr")
                 cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
-                cycleSpacerRow.innerHTML = `<td colspan="13" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of 4-Week Period ---</td>`
+                cycleSpacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of ${SCHEDULE_CONFIG.HISTORY_WEEKS}-Week Period ---</td>`
                 ui.scheduleTableBody.appendChild(cycleSpacerRow)
-                fourWeekBoundary.setDate(fourWeekBoundary.getDate() + 28)
+                fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
             }
         }
     })
@@ -1537,7 +1537,23 @@ function populateDaysOff(holidays) {
     })
 }
 
+function buildTableHeader() {
+    const thead = document.getElementById("schedule-thead")
+    if (!thead) return
+    const thClass = 'px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider'
+    let html = '<tr><th scope="col" class="px-1 py-3 w-8 action-col"></th>'
+    html += `<th scope="col" class="${thClass}">Date</th>`
+    html += `<th scope="col" class="${thClass}">Day Cycle</th>`
+    for (let i = 0; i < SCHEDULE_CONFIG.MAX_PERIODS_PER_DAY; i++) {
+        html += `<th scope="col" class="${thClass}">Period</th>`
+        html += `<th scope="col" class="${thClass}">Group</th>`
+    }
+    html += '</tr>'
+    thead.innerHTML = html
+}
+
 function initialize() {
+    buildTableHeader()
     // --- Cache all DOM elements into the ui object for efficient access ---
     ui.form = document.getElementById("schedule-form")
     ui.generateBtn = document.getElementById("generate-btn")

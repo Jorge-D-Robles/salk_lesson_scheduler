@@ -8,7 +8,7 @@
  */
 import { loadScheduler, runChecks, analyzeCycleViolations, weekdaysInRange, allMondaysInRange, allFridaysInRange } from './helpers.mjs';
 
-const { ScheduleBuilder } = loadScheduler();
+const { ScheduleBuilder, SCHEDULE_CONFIG } = loadScheduler();
 
 const tortureTests = [
     { desc: 'Scattered days off', start: '2025-09-01', daysOff: ['2025-09-03', '2025-09-10', '2025-09-17', '2025-09-24', '2025-10-01', '2025-10-08', '2025-10-15', '2025-10-22', '2025-10-29', '2025-11-05', '2025-11-12', '2025-11-19'], weeks: 16 },
@@ -121,7 +121,7 @@ let pass = 0, fail = 0;
 function getSpread(schedule) {
     const counts = new Map();
     for (const d of schedule) for (const l of d.lessons) {
-        if (l.group !== 'MU') counts.set(l.group, (counts.get(l.group) || 0) + 1);
+        if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts.set(l.group, (counts.get(l.group) || 0) + 1);
     }
     const vals = [...counts.values()];
     return vals.length > 0 ? Math.max(...vals) - Math.min(...vals) : 0;
@@ -155,7 +155,7 @@ for (const t of realisticTests) {
 console.log('\n--- Chunked scheduling (8-week chunks, 4-week history) ---');
 
 function runChunkedTest(desc, startCycle, daysOff) {
-    const allGroups = Array.from({ length: 22 }, (_, i) => String.fromCharCode(65 + i));
+    const allGroups = [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES];
     const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
     let combined = [];
@@ -169,7 +169,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
         const startDate = new Date(chunkStart + 'T00:00:00');
         const origEnd = new Date('2025-09-02T00:00:00');
         origEnd.setDate(origEnd.getDate() + 43 * 7);
-        const weeksLeft = Math.ceil((origEnd - startDate) / (7 * 86400000));
+        const weeksLeft = Math.ceil((origEnd - startDate) / (7 * SCHEDULE_CONFIG.ONE_DAY_MS));
         const thisChunkWeeks = Math.min(8, weeksLeft);
         if (thisChunkWeeks <= 0) break;
 
@@ -194,7 +194,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
             if (!combined.some(e => e.date.toDateString() === d.date.toDateString())) {
                 combined.push(d);
                 for (const l of d.lessons) {
-                    if (l.group !== 'MU') cumulativeCounts[l.group]++;
+                    if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) cumulativeCounts[l.group]++;
                 }
             }
         }
@@ -209,16 +209,14 @@ function runChunkedTest(desc, startCycle, daysOff) {
 
     // Validate combined schedule
     const issues = [];
-    const ONE_DAY_MS = 86400000;
-
     // 28-day calendar spacing rule
     const lastSeen = {};
     for (const d of combined) {
         for (const l of d.lessons) {
-            if (l.group === 'MU') continue;
+            if (l.group === SCHEDULE_CONFIG.MU_TOKEN) continue;
             if (!lastSeen[l.group]) lastSeen[l.group] = {};
             const last = lastSeen[l.group][l.period];
-            if (last && Math.round((d.date - last) / ONE_DAY_MS) < 28) issues.push(`28DAY:${l.group} ${l.period}`);
+            if (last && Math.round((d.date - last) / SCHEDULE_CONFIG.ONE_DAY_MS) < SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR) issues.push(`28DAY:${l.group} ${l.period}`);
             lastSeen[l.group][l.period] = d.date;
         }
     }
@@ -233,7 +231,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
         const wk = mon.toDateString();
         if (!weeks.has(wk)) weeks.set(wk, new Set());
         for (const l of d.lessons) {
-            if (l.group === 'MU') continue;
+            if (l.group === SCHEDULE_CONFIG.MU_TOKEN) continue;
             if (weeks.get(wk).has(l.group)) issues.push(`WEEKLY:${l.group}`);
             weeks.get(wk).add(l.group);
         }
@@ -242,10 +240,10 @@ function runChunkedTest(desc, startCycle, daysOff) {
     // Balance
     const counts = {};
     allGroups.forEach(g => counts[g] = 0);
-    for (const d of combined) for (const l of d.lessons) if (l.group !== 'MU') counts[l.group]++;
+    for (const d of combined) for (const l of d.lessons) if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++;
     const vals = Object.values(counts);
     const spread = Math.max(...vals) - Math.min(...vals);
-    if (spread > 1) issues.push(`BALANCE:${spread}`);
+    if (spread > SCHEDULE_CONFIG.RUNNING_BALANCE_THRESHOLD) issues.push(`BALANCE:${spread}`);
 
     const status = issues.length === 0 ? 'PASS' : 'FAIL';
     if (status === 'FAIL') fail++;

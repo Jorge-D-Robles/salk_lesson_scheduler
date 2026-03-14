@@ -5,7 +5,7 @@
  */
 import { loadScheduler } from './helpers.mjs';
 
-const { ScheduleBuilder } = loadScheduler();
+const { ScheduleBuilder, SCHEDULE_CONFIG } = loadScheduler();
 
 const levittownBase = [
     '2025-09-23', '2025-09-24', '2025-10-02', '2025-10-13', '2025-10-20',
@@ -18,7 +18,7 @@ const levittownBase = [
     '2026-05-25', '2026-05-27', '2026-06-19',
 ];
 
-const allGroups = Array.from({ length: 22 }, (_, i) => String.fromCharCode(65 + i));
+const allGroups = [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES];
 
 // Run the base Levittown schedule
 const builder = new ScheduleBuilder('2025-09-02', 1, levittownBase, 43);
@@ -29,7 +29,7 @@ const counts = {};
 allGroups.forEach(g => counts[g] = 0);
 for (const day of schedule) {
     for (const l of day.lessons) {
-        if (l.group !== 'MU') counts[l.group]++;
+        if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) counts[l.group]++;
     }
 }
 
@@ -39,7 +39,7 @@ const minC = Math.min(...Object.values(counts));
 const ceilGroups = allGroups.filter(g => counts[g] === maxC);
 const floorGroups = allGroups.filter(g => counts[g] === minC);
 
-console.log(`Total non-MU: ${totalNonMU}, mod 22 = ${totalNonMU % 22}`);
+console.log(`Total non-MU: ${totalNonMU}, mod ${SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS} = ${totalNonMU % SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS}`);
 console.log(`Max: ${maxC} (${ceilGroups.length} groups: [${ceilGroups.join(', ')}])`);
 console.log(`Min: ${minC} (${floorGroups.length} groups: [${floorGroups.join(', ')}])`);
 console.log(`Spread: ${maxC - minC}\n`);
@@ -52,18 +52,18 @@ console.log(`  [${builder.LESSON_GROUPS.join(', ')}]\n`);
 const seq = [];
 for (const day of schedule) {
     for (const l of day.lessons) {
-        if (l.group !== 'MU') {
+        if (l.group !== SCHEDULE_CONFIG.MU_TOKEN) {
             seq.push({ group: l.group, date: day.date });
         }
     }
 }
 
-// Find where each full cycle of 22 unique groups completes
+// Find where each full cycle of unique groups completes
 const seen = new Set();
 let cycleStarts = [0];
 for (let i = 0; i < seq.length; i++) {
     seen.add(seq[i].group);
-    if (seen.size === 22) {
+    if (seen.size === SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS) {
         if (i + 1 < seq.length) cycleStarts.push(i + 1);
         seen.clear();
     }

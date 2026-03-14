@@ -10,7 +10,7 @@
  */
 import { loadScheduler } from './helpers.mjs';
 
-const { ScheduleBuilder } = loadScheduler();
+const { ScheduleBuilder, SCHEDULE_CONFIG } = loadScheduler();
 
 const levittownBase = [
     '2025-09-23', '2025-09-24', '2025-10-02', '2025-10-13', '2025-10-20',
@@ -56,7 +56,7 @@ const realisticTests = [
     { desc: 'only 3 school days some weeks', extra: ['2025-09-22','2025-09-25','2025-10-01','2025-10-03','2025-11-24','2025-11-26','2026-01-20','2026-01-23'] },
 ];
 
-const allGroups = Array.from({ length: 22 }, (_, i) => String.fromCharCode(65 + i));
+const allGroups = [...SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES];
 
 // ========================================================================
 // PART 1: Per-schedule balance distribution
@@ -80,7 +80,7 @@ for (const t of realisticTests) {
         for (const day of schedule) {
             totalSlots += day.lessons.length;
             for (const lesson of day.lessons) {
-                if (lesson.group === 'MU') muCount++;
+                if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) muCount++;
                 else if (counts[lesson.group] !== undefined) counts[lesson.group]++;
             }
         }
@@ -152,9 +152,10 @@ if (imbalanced.length > 0) {
     const worst = imbalanced.sort((a, b) => b.spread - a.spread)[0];
     console.log(`Worst case: "${worst.desc}" spread=${worst.spread}`);
     console.log(`  Total slots: ${worst.totalSlots}, MU: ${worst.muCount}, Non-MU: ${worst.totalNonMU}`);
-    console.log(`  ${worst.totalNonMU} non-MU lessons / 22 groups = ${(worst.totalNonMU / 22).toFixed(2)} per group`);
-    console.log(`  Floor: ${Math.floor(worst.totalNonMU / 22)}, Ceil: ${Math.ceil(worst.totalNonMU / 22)}`);
-    console.log(`  Remainder: ${worst.totalNonMU % 22} groups get ceil, ${22 - worst.totalNonMU % 22} get floor`);
+    const gc = SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS;
+    console.log(`  ${worst.totalNonMU} non-MU lessons / ${gc} groups = ${(worst.totalNonMU / gc).toFixed(2)} per group`);
+    console.log(`  Floor: ${Math.floor(worst.totalNonMU / gc)}, Ceil: ${Math.ceil(worst.totalNonMU / gc)}`);
+    console.log(`  Remainder: ${worst.totalNonMU % gc} groups get ceil, ${gc - worst.totalNonMU % gc} get floor`);
     console.log(`  Min groups (${worst.minC}): [${worst.minGroups.join(', ')}]`);
     console.log(`  Max groups (${worst.maxC}): [${worst.maxGroups.join(', ')}]`);
 
@@ -172,7 +173,7 @@ if (imbalanced.length > 0) {
 console.log('\n=== PART 4: Is perfect balance (spread=0) mathematically possible? ===\n');
 
 for (const d of perScheduleDetails.slice(0, 10)) {
-    const remainder = d.totalNonMU % 22;
+    const remainder = d.totalNonMU % SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS;
     const theoreticalMinSpread = remainder === 0 ? 0 : 1;
     console.log(
         `  ${d.desc.padEnd(40)} ` +
@@ -186,7 +187,7 @@ for (const d of perScheduleDetails.slice(0, 10)) {
 // Count how many schedules achieve theoretical minimum vs excess
 let optimal = 0, excess = 0;
 for (const d of perScheduleDetails) {
-    const remainder = d.totalNonMU % 22;
+    const remainder = d.totalNonMU % SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS;
     const theoreticalMin = remainder === 0 ? 0 : 1;
     if (d.spread <= theoreticalMin) optimal++;
     else excess++;
@@ -222,7 +223,7 @@ for (const sd of startDates) {
         allGroups.forEach(g => counts[g] = 0);
         for (const day of schedule) {
             for (const lesson of day.lessons) {
-                if (lesson.group !== 'MU' && counts[lesson.group] !== undefined) {
+                if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN && counts[lesson.group] !== undefined) {
                     counts[lesson.group]++;
                     bigSampleCounts[lesson.group]++;
                 }
