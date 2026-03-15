@@ -24,6 +24,26 @@ const SCHEDULE_CONFIG = Object.freeze({
     PERIOD_PREFIX: "Pd ",
     ONE_DAY_MS: 86400000,
     HISTORY_WEEKS: 4,
+    // Instrument family mappings for print color coding
+    INSTRUMENT_FAMILIES: Object.freeze({
+        'Violins1': 'strings', 'Violins2': 'strings', 'Violas': 'strings',
+        'Cellos': 'strings', 'Basses': 'strings', 'StringBass': 'strings',
+        'Flutes': 'woodwinds', 'Clarinets': 'woodwinds', 'Oboes': 'woodwinds',
+        'Bassoons': 'woodwinds', 'Saxophones': 'woodwinds', 'AltoSax': 'woodwinds',
+        'TenorSax': 'woodwinds', 'BariSax': 'woodwinds',
+        'Trumpets': 'brass', 'Trombones': 'brass', 'FrenchHorns': 'brass',
+        'Tubas': 'brass', 'Horns': 'brass',
+        'Percussion': 'percussion', 'Drums': 'percussion',
+        'Piano': 'keyboard', 'Guitar': 'keyboard', 'Keyboards': 'keyboard',
+    }),
+    FAMILY_PRINT_COLORS: Object.freeze({
+        strings:    Object.freeze({ bg: '#dbeafe', border: '#2563eb' }),
+        woodwinds:  Object.freeze({ bg: '#dcfce7', border: '#16a34a' }),
+        brass:      Object.freeze({ bg: '#fef9c3', border: '#ca8a04' }),
+        percussion: Object.freeze({ bg: '#fce7f3', border: '#db2777' }),
+        keyboard:   Object.freeze({ bg: '#f3e8ff', border: '#9333ea' }),
+        other:      Object.freeze({ bg: '#ffedd5', border: '#ea580c' }),
+    }),
     // Derived (DO NOT edit — computed from above)
     MAX_PERIODS_PER_DAY: _MAX_PERIODS,
     TABLE_COLUMNS: 3 + _MAX_PERIODS * 2,

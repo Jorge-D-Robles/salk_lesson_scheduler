@@ -13,6 +13,10 @@
             href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
             rel="stylesheet"
         />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Merriweather:wght@700&display=swap"
+            rel="stylesheet"
+        />
         <style>
             body {
                 font-family: "Inter", sans-serif;
@@ -290,13 +294,16 @@
                 header, #auth-container, form, #loading-indicator,
                 #start-day-warning, #schedule-gap-warning,
                 footer, #toast-container, #undo-btn,
-                #save-csv-btn, #save-drive-btn,
+                #save-csv-btn, #save-drive-btn, #print-btn,
                 .action-col, .day-delete-btn, .day-action-popover,
                 .cell-issue-indicator, #empty-state,
                 #group-highlight-banner, #jump-to-group,
                 #collapse-all-btn, #expand-all-btn,
                 .sticky-actions, #dark-mode-toggle,
+                .unsaved-dot,
                 #group-color-legend, #drag-hint { display: none !important; }
+
+                #print-header { display: block !important; }
 
                 .table-container {
                     max-height: none !important;
@@ -304,22 +311,38 @@
                 }
                 #schedule-thead { position: static !important; }
 
-                #schedule-table { font-size: 10pt; }
-                #schedule-table td, #schedule-table th {
+                .container { max-width: none !important; }
+
+                #schedule-table { font-size: 9pt; }
+                #schedule-table th {
                     padding: 2px 4px !important;
                     border: 1px solid #000 !important;
+                    text-transform: uppercase;
+                    font-size: 8pt;
+                }
+                #schedule-table td {
+                    padding: 2px 4px !important;
+                    border: 1px solid #ccc !important;
+                }
+                .lesson-group-cell {
+                    background-color: var(--print-bg, transparent) !important;
+                    border-left: 3px solid var(--print-border, transparent) !important;
                 }
 
                 #schedule-summary { break-after: avoid; }
                 tr:not(.weekly-spacer):not(.cycle-spacer) { break-inside: avoid; }
 
                 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                body { background: white !important; }
+                body { background: white !important; color: black !important; }
                 main { box-shadow: none !important; padding: 0 !important; }
 
                 tr[style*="display: none"] { display: table-row !important; }
 
                 html.dark * { color: black !important; background: white !important; }
+                html.dark .lesson-group-cell {
+                    background-color: var(--print-bg, transparent) !important;
+                    border-left: 3px solid var(--print-border, transparent) !important;
+                }
             }
         </style>
     </head>
@@ -647,6 +670,16 @@
                     </div>
                 </div>
 
+                <!-- Print header (hidden on screen, shown in print) -->
+                <div id="print-header" style="display: none;">
+                    <div style="text-align: center; margin-bottom: 0.5rem;">
+                        <div style="font-size: 10pt; letter-spacing: 0.15em; text-transform: uppercase; color: #6b7280; margin-bottom: 0.25rem;">Jonas E. Salk Middle School</div>
+                        <div style="font-family: 'Merriweather', serif; font-size: 18pt; font-weight: 700; color: #1f2937;">&#9835; Ms. Grabowski's Lesson Schedule &#9835;</div>
+                        <div id="print-date-range" style="font-size: 10pt; color: #4b5563; margin-top: 0.25rem;"></div>
+                    </div>
+                    <div id="print-family-legend" style="display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.5rem; font-size: 8pt;"></div>
+                </div>
+
                 <div id="schedule-output" class="hidden mt-8">
                     <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <div class="flex items-center space-x-4">
@@ -688,6 +721,11 @@
                     </div>
                     <!-- Feature 5: Sticky save/export buttons -->
                     <div class="sticky-actions sticky bottom-0 z-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border-t border-gray-200 dark:border-gray-700 pt-3 pb-2 mt-2 flex justify-end space-x-4 px-2">
+                        <button
+                            id="print-btn"
+                            class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-lg transition duration-300"
+                            title="Print the schedule (Ctrl+P)"
+                        >&#128438; Print</button>
                         <button
                             id="save-drive-btn"
                             class="hidden bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300"

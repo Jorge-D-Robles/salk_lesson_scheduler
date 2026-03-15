@@ -76,6 +76,48 @@ function getGroupColor(groupName) {
     return isDark ? `hsl(${hue}, 60%, 25%)` : `hsl(${hue}, 85%, 92%)`
 }
 
+function getGroupPrintColor(groupName) {
+    const family = SCHEDULE_CONFIG.INSTRUMENT_FAMILIES[groupName]
+    if (!family) return { bg: '#f3f4f6', border: '#9ca3af' }
+    return SCHEDULE_CONFIG.FAMILY_PRINT_COLORS[family] || SCHEDULE_CONFIG.FAMILY_PRINT_COLORS.other
+}
+
+function preparePrintHeader() {
+    const dateRange = document.getElementById('print-date-range')
+    const legend = document.getElementById('print-family-legend')
+    if (!dateRange || !legend) return
+
+    // Populate date range
+    if (currentSchedule && currentSchedule.length > 0) {
+        const fmt = { month: 'long', day: 'numeric', year: 'numeric' }
+        const first = currentSchedule[0].date.toLocaleDateString(undefined, fmt)
+        const last = currentSchedule[currentSchedule.length - 1].date.toLocaleDateString(undefined, fmt)
+        dateRange.textContent = `${first} \u2013 ${last}`
+    }
+
+    // Build family legend from groups actually in the schedule
+    const familiesUsed = new Map()
+    if (currentSchedule) {
+        for (const entry of currentSchedule) {
+            for (const lesson of entry.lessons) {
+                const family = SCHEDULE_CONFIG.INSTRUMENT_FAMILIES[lesson.group]
+                if (family && !familiesUsed.has(family)) {
+                    familiesUsed.set(family, SCHEDULE_CONFIG.FAMILY_PRINT_COLORS[family])
+                }
+            }
+        }
+    }
+
+    legend.innerHTML = ''
+    for (const [name, colors] of familiesUsed) {
+        if (!colors) continue
+        const swatch = document.createElement('span')
+        swatch.style.cssText = `display: inline-flex; align-items: center; gap: 0.25rem;`
+        swatch.innerHTML = `<span style="display: inline-block; width: 12px; height: 12px; background: ${colors.bg}; border-left: 3px solid ${colors.border}; border-radius: 2px;"></span>${name.charAt(0).toUpperCase() + name.slice(1)}`
+        legend.appendChild(swatch)
+    }
+}
+
 function hideEmptyState() {
     const el = document.getElementById('empty-state')
     if (el) el.classList.add('hidden')
@@ -1625,7 +1667,9 @@ function displaySchedule(schedule, previousSchedule = null) {
                 const isMU = entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
                 const groupClass = isMU ? "text-red-600" : "text-gray-800 dark:text-gray-200"
                 const bgColor = isMU ? '#f3f4f6' : getGroupColor(entry.lessons[i].group)
-                const bgStyle = bgColor ? ` style="background-color: ${bgColor}"` : ''
+                const printColor = isMU ? null : getGroupPrintColor(entry.lessons[i].group)
+                const printVars = printColor ? `; --print-bg: ${printColor.bg}; --print-border: ${printColor.border}` : ''
+                const bgStyle = bgColor ? ` style="background-color: ${bgColor}${printVars}"` : (printVars ? ` style="${printVars.slice(2)}"` : '')
                 const issues = cellIssues.get(`${index}-${i}`)
                 const indicator = issues
                     ? `<span class="cell-issue-indicator" data-issues="${issues.join('\n').replace(/"/g, '&quot;')}">&#9888;</span>`
@@ -1838,6 +1882,13 @@ function initialize() {
     ui.loadHolidaysSelect = document.getElementById("load-holidays-select")
     ui.deleteHolidayBtn = document.getElementById("delete-holiday-btn")
     if (ui.undoBtn) ui.undoBtn.addEventListener('click', performUndo)
+    const printBtn = document.getElementById('print-btn')
+    if (printBtn) {
+        printBtn.addEventListener('click', () => {
+            preparePrintHeader()
+            window.print()
+        })
+    }
 
     // --- Attach Event Listeners ---
     ui.scheduleTableBody.addEventListener('click', (e) => {
@@ -2244,6 +2295,15 @@ function initialize() {
         if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
             e.preventDefault()
             if (undoStack.length > 0) performUndo()
+            return
+        }
+
+        // Ctrl/Cmd+P: Print
+        if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+            e.preventDefault()
+            if (!currentSchedule) return
+            preparePrintHeader()
+            window.print()
             return
         }
 
