@@ -1760,10 +1760,15 @@ function displaySchedule(schedule, previousSchedule = null) {
         row.id = `schedule-row-${index}`
         row.dataset.weekId = entryWeekIdentifier
         // Alternating row stripes: different tint per day cycle
+        const isDark = document.documentElement.classList.contains('dark')
+        let stickyBg = isDark ? '#1f2937' : '#ffffff'
         if (index % 2 === 0) {
             row.className = entry.dayCycle === 1
                 ? 'bg-blue-50/40 dark:bg-blue-900/30'
                 : 'bg-amber-50/40 dark:bg-amber-900/20'
+            stickyBg = isDark
+                ? (entry.dayCycle === 1 ? '#1a2744' : '#2a2518')
+                : (entry.dayCycle === 1 ? '#f0f6fe' : '#fefbf0')
         }
         if (isCollapsed) row.style.display = 'none'
         const formattedDate = entry.date.toLocaleDateString(undefined, {
@@ -1781,7 +1786,7 @@ function displaySchedule(schedule, previousSchedule = null) {
         }
         const dayPeriods = entry.dayCycle === 1 ? SCHEDULE_CONFIG.DAY1_PERIODS : SCHEDULE_CONFIG.DAY2_PERIODS
 
-        let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">${entry.dayCycle}</td>`
+        let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 sticky-col" style="background:${stickyBg}">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">${entry.dayCycle}</td>`
         for (const p of SCHEDULE_CONFIG.ALL_PERIODS) {
             const lessonIdx = periodToIdx[p]
             if (lessonIdx !== undefined) {
@@ -1957,12 +1962,40 @@ function populateDaysOff(holidays) {
     })
 }
 
+function appendDaysOff(newDates) {
+    if (!newDates || newDates.length === 0) return
+    // Collect existing dates
+    const existing = new Set(
+        Array.from(document.querySelectorAll('.day-off-input'))
+            .map(i => i.value)
+            .filter(Boolean)
+    )
+    const toAdd = newDates.filter(d => !existing.has(d))
+    if (toAdd.length === 0) {
+        showToast('All dates already in the list.', 'info')
+        return
+    }
+    // Fill the first empty slot, then append new rows
+    const firstInput = ui.daysOffContainer.querySelector('.day-off-input')
+    let startIdx = 0
+    if (firstInput && !firstInput.value) {
+        firstInput.value = toAdd[0]
+        startIdx = 1
+    }
+    for (let i = startIdx; i < toAdd.length; i++) {
+        const newRow = ui.dayOffTemplate.content.cloneNode(true)
+        newRow.querySelector('.day-off-input').value = toAdd[i]
+        ui.daysOffContainer.appendChild(newRow)
+    }
+    showToast(`Added ${toAdd.length} day${toAdd.length > 1 ? 's' : ''} off.`, 'success')
+}
+
 function buildTableHeader() {
     const thead = document.getElementById("schedule-thead")
     if (!thead) return
     const thClass = 'px-2 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
     let html = '<tr><th scope="col" class="px-1 py-3 w-8 action-col"></th>'
-    html += `<th scope="col" class="${thClass} text-left">Date</th>`
+    html += `<th scope="col" class="${thClass} text-left sticky-col">Date</th>`
     html += `<th scope="col" class="${thClass} text-center">Day</th>`
     for (const p of SCHEDULE_CONFIG.ALL_PERIODS) {
         html += `<th scope="col" class="${thClass} text-center">Pd ${p}</th>`
@@ -2199,6 +2232,73 @@ function initialize() {
                     row.remove()
                 }
             })
+        })
+    }
+
+    // --- Bulk Days Off ---
+    const bulkRangeBtn = document.getElementById('bulk-range-btn')
+    const bulkPasteToggle = document.getElementById('bulk-paste-toggle')
+    const bulkPasteSection = document.getElementById('bulk-paste-section')
+    const bulkPasteBtn = document.getElementById('bulk-paste-btn')
+    if (bulkRangeBtn) {
+        bulkRangeBtn.addEventListener('click', () => {
+            const start = document.getElementById('bulk-range-start').value
+            const end = document.getElementById('bulk-range-end').value
+            if (!start || !end) {
+                showToast('Select both a start and end date for the range.', 'error')
+                return
+            }
+            const startDate = new Date(start + 'T00:00:00')
+            const endDate = new Date(end + 'T00:00:00')
+            if (endDate < startDate) {
+                showToast('End date must be after start date.', 'error')
+                return
+            }
+            const dates = []
+            const d = new Date(startDate)
+            while (d <= endDate) {
+                const dow = d.getDay()
+                if (dow !== 0 && dow !== 6) {
+                    const yyyy = d.getFullYear()
+                    const mm = String(d.getMonth() + 1).padStart(2, '0')
+                    const dd = String(d.getDate()).padStart(2, '0')
+                    dates.push(`${yyyy}-${mm}-${dd}`)
+                }
+                d.setDate(d.getDate() + 1)
+            }
+            appendDaysOff(dates)
+            document.getElementById('bulk-range-start').value = ''
+            document.getElementById('bulk-range-end').value = ''
+        })
+    }
+    if (bulkPasteToggle && bulkPasteSection) {
+        bulkPasteToggle.addEventListener('click', () => {
+            bulkPasteSection.classList.toggle('hidden')
+        })
+    }
+    if (bulkPasteBtn) {
+        bulkPasteBtn.addEventListener('click', () => {
+            const text = document.getElementById('bulk-paste-input').value.trim()
+            if (!text) return
+            // Split by newlines, commas, semicolons, or tabs
+            const parts = text.split(/[\n,;\t]+/).map(s => s.trim()).filter(Boolean)
+            const dates = []
+            for (const part of parts) {
+                const d = new Date(part + (part.match(/^\d{4}-\d{2}-\d{2}$/) ? 'T00:00:00' : ''))
+                if (!isNaN(d.getTime())) {
+                    const yyyy = d.getFullYear()
+                    const mm = String(d.getMonth() + 1).padStart(2, '0')
+                    const dd = String(d.getDate()).padStart(2, '0')
+                    dates.push(`${yyyy}-${mm}-${dd}`)
+                }
+            }
+            if (dates.length === 0) {
+                showToast('No valid dates found. Use YYYY-MM-DD or natural date formats.', 'error')
+                return
+            }
+            appendDaysOff(dates)
+            document.getElementById('bulk-paste-input').value = ''
+            bulkPasteSection.classList.add('hidden')
         })
     }
 
