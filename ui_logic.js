@@ -85,29 +85,25 @@ function getGroupPrintColor(groupName) {
 function preparePrintHeader() {
     const dateRange = document.getElementById('print-date-range')
     const legend = document.getElementById('print-family-legend')
-    if (!dateRange || !legend) return
+    const printContainer = document.getElementById('print-table-container')
+    if (!dateRange || !legend || !printContainer || !currentSchedule || currentSchedule.length === 0) return
 
     // Populate date range
-    if (currentSchedule && currentSchedule.length > 0) {
-        const fmt = { month: 'long', day: 'numeric', year: 'numeric' }
-        const first = currentSchedule[0].date.toLocaleDateString(undefined, fmt)
-        const last = currentSchedule[currentSchedule.length - 1].date.toLocaleDateString(undefined, fmt)
-        dateRange.textContent = `${first} \u2013 ${last}`
-    }
+    const fmt = { month: 'long', day: 'numeric', year: 'numeric' }
+    const first = currentSchedule[0].date.toLocaleDateString(undefined, fmt)
+    const last = currentSchedule[currentSchedule.length - 1].date.toLocaleDateString(undefined, fmt)
+    dateRange.textContent = `${first} \u2013 ${last}`
 
     // Build family legend from groups actually in the schedule
     const familiesUsed = new Map()
-    if (currentSchedule) {
-        for (const entry of currentSchedule) {
-            for (const lesson of entry.lessons) {
-                const family = SCHEDULE_CONFIG.INSTRUMENT_FAMILIES[lesson.group]
-                if (family && !familiesUsed.has(family)) {
-                    familiesUsed.set(family, SCHEDULE_CONFIG.FAMILY_PRINT_COLORS[family])
-                }
+    for (const entry of currentSchedule) {
+        for (const lesson of entry.lessons) {
+            const family = SCHEDULE_CONFIG.INSTRUMENT_FAMILIES[lesson.group]
+            if (family && !familiesUsed.has(family)) {
+                familiesUsed.set(family, SCHEDULE_CONFIG.FAMILY_PRINT_COLORS[family])
             }
         }
     }
-
     legend.innerHTML = ''
     for (const [name, colors] of familiesUsed) {
         if (!colors) continue
@@ -116,6 +112,63 @@ function preparePrintHeader() {
         swatch.innerHTML = `<span style="display: inline-block; width: 12px; height: 12px; background: ${colors.bg}; border-left: 3px solid ${colors.border}; border-radius: 2px;"></span>${name.charAt(0).toUpperCase() + name.slice(1)}`
         legend.appendChild(swatch)
     }
+
+    // Build print table — columns: Date | Day | one col per unique period
+    const allPeriods = [...new Set([...SCHEDULE_CONFIG.DAY1_PERIODS, ...SCHEDULE_CONFIG.DAY2_PERIODS])].sort((a, b) => a - b)
+
+    // Group entries by month
+    const months = []
+    let currentMonth = null
+    for (const entry of currentSchedule) {
+        const monthKey = `${entry.date.getFullYear()}-${entry.date.getMonth()}`
+        if (monthKey !== currentMonth) {
+            months.push({ label: entry.date.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }), entries: [] })
+            currentMonth = monthKey
+        }
+        months[months.length - 1].entries.push(entry)
+    }
+
+    // Build HTML
+    let html = ''
+    const headerRow = `<thead><tr><th>Date</th><th>Day</th>${allPeriods.map(p => `<th>Pd ${p}</th>`).join('')}</tr></thead>`
+
+    months.forEach((month, mi) => {
+        const pageBreak = mi > 0 ? ' print-month-break' : ''
+        html += `<div class="print-month-header${pageBreak}">${month.label}</div>`
+        html += `<table class="print-table">${headerRow}<tbody>`
+        for (const entry of month.entries) {
+            const dateStr = entry.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+            // Build period -> group lookup for this day
+            const periodMap = {}
+            for (const lesson of entry.lessons) {
+                const pNum = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+                periodMap[pNum] = lesson.group
+            }
+            // Which periods are available on this day type
+            const dayPeriods = entry.dayCycle === 1 ? SCHEDULE_CONFIG.DAY1_PERIODS : SCHEDULE_CONFIG.DAY2_PERIODS
+
+            let cells = ''
+            for (const p of allPeriods) {
+                const group = periodMap[p]
+                if (group) {
+                    const isMU = group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
+                    const printColor = isMU ? null : getGroupPrintColor(group)
+                    const style = printColor ? ` style="--print-bg: ${printColor.bg}; --print-border: ${printColor.border}"` : ''
+                    const cls = isMU ? 'print-mu-cell' : 'print-group-cell'
+                    cells += `<td class="${cls}"${style}>${group}</td>`
+                } else if (!dayPeriods.includes(p)) {
+                    // Period doesn't exist on this day type
+                    cells += `<td style="background: #f9fafb;"></td>`
+                } else {
+                    cells += `<td></td>`
+                }
+            }
+            html += `<tr><td>${dateStr}</td><td>${entry.dayCycle}</td>${cells}</tr>`
+        }
+        html += `</tbody></table>`
+    })
+
+    printContainer.innerHTML = html
 }
 
 function hideEmptyState() {
