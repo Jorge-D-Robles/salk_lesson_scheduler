@@ -61,8 +61,180 @@ let lastHoveredCell = null
 let activeSwapToast = null
 let undoStack = []
 let activeIssueTooltip = null
+let highlightedGroup = null
+let touchSwapState = null
+const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0)
+let collapsedWeeks = new Set()
 
 // --- Function Definitions ---
+
+function getGroupColor(groupName) {
+    const index = SCHEDULE_CONFIG.DEFAULT_GROUP_NAMES.indexOf(groupName)
+    if (index === -1) return ''
+    const hue = Math.round(index * (360 / SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS))
+    const isDark = document.documentElement.classList.contains('dark')
+    return isDark ? `hsl(${hue}, 60%, 25%)` : `hsl(${hue}, 85%, 92%)`
+}
+
+function hideEmptyState() {
+    const el = document.getElementById('empty-state')
+    if (el) el.classList.add('hidden')
+}
+
+function showEmptyState() {
+    const el = document.getElementById('empty-state')
+    if (el && (!currentSchedule || currentSchedule.length === 0)) {
+        el.classList.remove('hidden')
+    }
+}
+
+// --- Group Highlighting (Feature 7) ---
+function toggleGroupHighlight(groupName) {
+    if (highlightedGroup === groupName) {
+        clearGroupHighlight()
+        return
+    }
+    highlightedGroup = groupName
+    const cells = ui.scheduleTableBody.querySelectorAll('.lesson-group-cell')
+    cells.forEach(cell => {
+        if (cell.dataset.group === groupName) {
+            cell.classList.add('group-highlighted')
+            cell.classList.remove('group-dimmed')
+        } else {
+            cell.classList.add('group-dimmed')
+            cell.classList.remove('group-highlighted')
+        }
+    })
+    // Dim spacer rows
+    ui.scheduleTableBody.querySelectorAll('.weekly-spacer, .cycle-spacer').forEach(row => {
+        row.classList.add('row-dimmed')
+    })
+    const banner = document.getElementById('group-highlight-banner')
+    const nameSpan = document.getElementById('highlight-group-name')
+    if (banner && nameSpan) {
+        nameSpan.textContent = groupName
+        banner.classList.remove('hidden')
+    }
+}
+
+function clearGroupHighlight() {
+    highlightedGroup = null
+    ui.scheduleTableBody.querySelectorAll('.group-highlighted, .group-dimmed').forEach(el => {
+        el.classList.remove('group-highlighted', 'group-dimmed')
+    })
+    ui.scheduleTableBody.querySelectorAll('.row-dimmed').forEach(el => {
+        el.classList.remove('row-dimmed')
+    })
+    const banner = document.getElementById('group-highlight-banner')
+    if (banner) banner.classList.add('hidden')
+}
+
+// --- Touch Swap (Feature 10) ---
+function handleTouchSelect(cell) {
+    const dayIndex = parseInt(cell.dataset.dayIndex, 10)
+    const lessonIndex = parseInt(cell.dataset.lessonIndex, 10)
+    const group = cell.dataset.group
+    const dayCycle = currentSchedule[dayIndex].dayCycle
+
+    if (!touchSwapState) {
+        // First selection
+        touchSwapState = { dayIndex, lessonIndex, group, dayCycle, cell }
+        cell.classList.add('touch-selected')
+        // Highlight compatible cells (same day cycle)
+        ui.scheduleTableBody.querySelectorAll('.lesson-group-cell').forEach(c => {
+            if (c === cell) return
+            const ci = parseInt(c.dataset.dayIndex, 10)
+            if (currentSchedule[ci].dayCycle === dayCycle) {
+                c.classList.add('touch-compatible')
+            }
+        })
+        return
+    }
+
+    if (touchSwapState.cell === cell) {
+        // Same cell tapped again — cancel
+        clearTouchSelection()
+        return
+    }
+
+    // Second selection — attempt swap
+    const targetDayCycle = currentSchedule[dayIndex].dayCycle
+    if (targetDayCycle !== touchSwapState.dayCycle) {
+        showToast('Can only swap within the same day cycle', 'error')
+        clearTouchSelection()
+        return
+    }
+
+    const violations = checkSwapViolations(touchSwapState.dayIndex, touchSwapState.lessonIndex, dayIndex, lessonIndex)
+    if (violations.length > 0) {
+        const msgs = violations.map(v => {
+            if (v.type === 'weekly') return `${v.group} already scheduled this week (${v.conflictDate})`
+            if (v.type === 'mu') return `Would create 2+ MU slots on ${v.conflictDate}`
+            return ''
+        }).join('; ')
+        showToast(`Warning: ${msgs}. Tap again to swap anyway.`, 'info', {
+            label: 'Swap anyway',
+            callback: () => {
+                executeGroupSwap(touchSwapState.dayIndex, touchSwapState.lessonIndex, dayIndex, lessonIndex)
+                clearTouchSelection()
+            }
+        })
+        clearTouchSelection()
+        return
+    }
+
+    executeGroupSwap(touchSwapState.dayIndex, touchSwapState.lessonIndex, dayIndex, lessonIndex)
+    clearTouchSelection()
+}
+
+function clearTouchSelection() {
+    ui.scheduleTableBody.querySelectorAll('.touch-selected, .touch-compatible').forEach(el => {
+        el.classList.remove('touch-selected', 'touch-compatible')
+    })
+    touchSwapState = null
+}
+
+// --- Jump to Group (Feature 8) ---
+function populateJumpToGroup(schedule) {
+    const select = document.getElementById('jump-to-group')
+    if (!select) return
+    const groups = new Set()
+    for (const entry of schedule) {
+        for (const lesson of entry.lessons) {
+            if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN) groups.add(lesson.group)
+        }
+    }
+    select.innerHTML = '<option value="">Jump to group...</option>'
+    const sorted = [...groups].sort()
+    for (const g of sorted) {
+        const opt = document.createElement('option')
+        opt.value = g
+        opt.textContent = g
+        select.appendChild(opt)
+    }
+}
+
+// --- Group Color Legend (Feature 4) ---
+function populateGroupColorLegend(schedule) {
+    const legend = document.getElementById('group-color-legend')
+    if (!legend) return
+    const groups = new Set()
+    for (const entry of schedule) {
+        for (const lesson of entry.lessons) {
+            if (lesson.group !== SCHEDULE_CONFIG.MU_TOKEN) groups.add(lesson.group)
+        }
+    }
+    legend.innerHTML = ''
+    const sorted = [...groups].sort()
+    for (const g of sorted) {
+        const span = document.createElement('span')
+        span.className = 'inline-flex items-center px-1.5 py-0.5 rounded font-medium'
+        span.style.backgroundColor = getGroupColor(g)
+        span.textContent = g
+        legend.appendChild(span)
+    }
+    legend.classList.remove('hidden')
+}
 
 /**
  * Shows a temporary toast notification.
@@ -157,20 +329,20 @@ function displayScheduleSummary(schedule, cellIssues) {
     if (!summaryContent) return
     summaryContent.innerHTML = `
         <div class="text-center">
-            <div class="text-2xl font-bold text-indigo-700">${schedule.length}</div>
-            <div class="text-gray-600">Total Days</div>
+            <div class="text-2xl font-bold text-indigo-700 dark:text-indigo-400">${schedule.length}</div>
+            <div class="text-gray-600 dark:text-gray-400">Total Days</div>
         </div>
         <div class="text-center">
-            <div class="text-2xl font-bold text-indigo-700">${endSpread}</div>
-            <div class="text-gray-600">End Balance Spread</div>
+            <div class="text-2xl font-bold text-indigo-700 dark:text-indigo-400">${endSpread}</div>
+            <div class="text-gray-600 dark:text-gray-400">End Balance Spread</div>
         </div>
         <div class="text-center">
             <div class="text-2xl font-bold ${maxRunSpread <= 1 ? 'text-green-600' : 'text-amber-600'}">${maxRunSpread}</div>
-            <div class="text-gray-600">Max Running Spread</div>
+            <div class="text-gray-600 dark:text-gray-400">Max Running Spread</div>
         </div>
         <div class="text-center">
-            <div class="text-2xl font-bold text-indigo-700">${minCount}–${maxCount}</div>
-            <div class="text-gray-600">Lessons/Group</div>
+            <div class="text-2xl font-bold text-indigo-700 dark:text-indigo-400">${minCount}–${maxCount}</div>
+            <div class="text-gray-600 dark:text-gray-400">Lessons/Group</div>
         </div>
     `
 
@@ -211,14 +383,14 @@ function displayScheduleSummary(schedule, cellIssues) {
         }
 
         violationsHTML = `
-            <div id="summary-violations" class="mt-3 pt-3 border-t border-red-200 bg-red-50 rounded-md p-3 text-sm">
-                <div class="font-semibold text-red-700 mb-1">Violations</div>
+            <div id="summary-violations" class="mt-3 pt-3 border-t border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 rounded-md p-3 text-sm">
+                <div class="font-semibold text-red-700 dark:text-red-400 mb-1">Violations</div>
                 ${lines.join('\n')}
             </div>`
     } else {
         violationsHTML = `
-            <div id="summary-violations" class="mt-3 pt-3 border-t border-green-200 bg-green-50 rounded-md p-3 text-sm">
-                <span class="font-semibold text-green-700">No violations</span>
+            <div id="summary-violations" class="mt-3 pt-3 border-t border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/30 rounded-md p-3 text-sm">
+                <span class="font-semibold text-green-700 dark:text-green-400">No violations</span>
             </div>`
     }
 
@@ -766,6 +938,7 @@ async function handleAccessToken(token) {
                 }
                 scheduleModified = false
                 updateSaveButtonUnsaved(false)
+                hideEmptyState()
                 ui.scheduleOutput.classList.remove('hidden')
                 showToast('Schedule loaded from Google Drive', 'info')
             }
@@ -844,10 +1017,14 @@ async function autoSaveToDrive(schedule) {
  */
 function runScheduler() {
     clearUndoStack()
+    collapsedWeeks.clear()
 
     const params = getScheduleParameters()
     if (!params) return // Validation failed, so stop.
     const { startDate, dayCycle, daysOff, weeks, scheduleHistory } = params
+
+    // Snapshot previous schedule for diff view (Feature 12)
+    const previousSchedule = currentSchedule ? cloneSchedule(currentSchedule) : null
 
     showLoading()
     ui.generateBtn.disabled = true
@@ -856,11 +1033,12 @@ function runScheduler() {
         .then(result => {
             const schedule = rehydrateSchedule(result.schedule)
             schedule.achievedDayRule = result.achievedDayRule
-            displaySchedule(schedule)
+            displaySchedule(schedule, previousSchedule)
             currentSchedule = schedule
             storeScheduleParams(startDate, weeks, daysOff)
             scheduleModified = false
             updateSaveButtonUnsaved(false)
+            hideEmptyState()
             debouncedAutoSave(schedule)
         })
         .catch(error => {
@@ -1176,6 +1354,7 @@ function handleCSVImport(event) {
         }
         scheduleModified = false
         updateSaveButtonUnsaved(false)
+        hideEmptyState()
         ui.scheduleOutput.classList.remove("hidden")
         ui.importCsvInput.value = ""
         debouncedAutoSave(schedule)
@@ -1366,7 +1545,7 @@ function computeCellIssues(schedule) {
     return issues
 }
 
-function displaySchedule(schedule) {
+function displaySchedule(schedule, previousSchedule = null) {
     ui.scheduleTableBody.innerHTML = ""
 
     if (schedule.length === 0) {
@@ -1375,6 +1554,23 @@ function displaySchedule(schedule) {
     }
 
     const cellIssues = computeCellIssues(schedule)
+
+    // Build diff map (Feature 12)
+    let diffMap = null
+    let diffCount = 0
+    if (previousSchedule && previousSchedule.length > 0) {
+        diffMap = new Map()
+        for (const prevEntry of previousSchedule) {
+            const dateStr = toLocalDateString(prevEntry.date)
+            for (const lesson of prevEntry.lessons) {
+                diffMap.set(`${dateStr}-${lesson.period}`, lesson.group)
+            }
+        }
+    }
+
+    // Track weeks for collapsible feature
+    const weekRows = new Map() // weekId -> [row elements]
+    let currentWeekId = null
 
     let currentWeekIdentifier = getWeekIdentifier(schedule[0].date)
     let fourWeekBoundary = new Date(schedule[0].date.getTime())
@@ -1386,15 +1582,36 @@ function displaySchedule(schedule) {
 
         const entryWeekIdentifier = getWeekIdentifier(entry.date)
         if (entryWeekIdentifier !== currentWeekIdentifier) {
+            // Count days and lessons in the upcoming week
+            let weekDays = 0
+            let weekLessons = 0
+            for (const e of schedule) {
+                if (getWeekIdentifier(e.date) === entryWeekIdentifier) {
+                    weekDays++
+                    weekLessons += e.lessons.length
+                }
+            }
+            const weekLabel = entry.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+            const isCollapsed = collapsedWeeks.has(entryWeekIdentifier)
+
             const spacerRow = document.createElement("tr")
-            spacerRow.className = "bg-gray-200 weekly-spacer"
-            spacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1"></td>`
+            spacerRow.className = "bg-gray-200 dark:bg-gray-700 weekly-spacer cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-600"
+            spacerRow.dataset.weekId = entryWeekIdentifier
+            const iconClass = isCollapsed ? 'week-toggle-icon collapsed' : 'week-toggle-icon'
+            spacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1 px-2 text-xs text-gray-600 dark:text-gray-300 select-none"><span class="${iconClass}">&#9660;</span>${isCollapsed ? `Week of ${weekLabel} (${weekDays} days, ${weekLessons} lessons)` : ''}</td>`
             ui.scheduleTableBody.appendChild(spacerRow)
             currentWeekIdentifier = entryWeekIdentifier
+            currentWeekId = entryWeekIdentifier
+        } else if (index === 0) {
+            currentWeekId = entryWeekIdentifier
         }
+
+        const isCollapsed = collapsedWeeks.has(entryWeekIdentifier)
 
         const row = document.createElement("tr")
         row.id = `schedule-row-${index}`
+        row.dataset.weekId = entryWeekIdentifier
+        if (isCollapsed) row.style.display = 'none'
         const formattedDate = entry.date.toLocaleDateString(undefined, {
             weekday: "short",
             year: "numeric",
@@ -1402,17 +1619,29 @@ function displaySchedule(schedule) {
             day: "numeric",
         })
 
-        let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700">${entry.dayCycle}</td>`
+        let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">${entry.dayCycle}</td>`
         for (let i = 0; i < SCHEDULE_CONFIG.MAX_PERIODS_PER_DAY; i++) {
             if (entry.lessons[i]) {
-                const groupClass = entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
-                    ? "text-red-600"
-                    : "text-gray-800"
+                const isMU = entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
+                const groupClass = isMU ? "text-red-600" : "text-gray-800 dark:text-gray-200"
+                const bgColor = isMU ? '#f3f4f6' : getGroupColor(entry.lessons[i].group)
+                const bgStyle = bgColor ? ` style="background-color: ${bgColor}"` : ''
                 const issues = cellIssues.get(`${index}-${i}`)
                 const indicator = issues
                     ? `<span class="cell-issue-indicator" data-issues="${issues.join('\n').replace(/"/g, '&quot;')}">&#9888;</span>`
                     : ''
-                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500">${entry.lessons[i].period}</td><td draggable="true" class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}">${entry.lessons[i].group}${indicator}</td>`
+                // Diff detection (Feature 12)
+                let diffClass = ''
+                if (diffMap) {
+                    const dateStr = toLocalDateString(entry.date)
+                    const prevGroup = diffMap.get(`${dateStr}-${entry.lessons[i].period}`)
+                    if (prevGroup !== undefined && prevGroup !== entry.lessons[i].group) {
+                        diffClass = ' diff-highlight'
+                        diffCount++
+                    }
+                }
+                const draggableAttr = isTouchDevice ? '' : 'draggable="true" '
+                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${entry.lessons[i].period}</td><td ${draggableAttr}class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell${diffClass}" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}"${bgStyle}>${entry.lessons[i].group}${indicator}</td>`
             } else {
                 rowHTML +=
                     '<td class="px-2 py-3"></td><td class="px-2 py-3"></td>'
@@ -1430,14 +1659,32 @@ function displaySchedule(schedule) {
                 nextDate >= fourWeekBoundary
             ) {
                 const cycleSpacerRow = document.createElement("tr")
-                cycleSpacerRow.className = "bg-indigo-100 cycle-spacer"
-                cycleSpacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-2 text-center text-sm font-semibold text-indigo-700">--- End of ${SCHEDULE_CONFIG.HISTORY_WEEKS}-Week Period ---</td>`
+                cycleSpacerRow.className = "bg-indigo-100 dark:bg-indigo-800 cycle-spacer"
+                cycleSpacerRow.dataset.weekId = entryWeekIdentifier
+                if (isCollapsed) cycleSpacerRow.style.display = 'none'
+                cycleSpacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-2 text-center text-sm font-semibold text-indigo-700 dark:text-indigo-300">--- End of ${SCHEDULE_CONFIG.HISTORY_WEEKS}-Week Period ---</td>`
                 ui.scheduleTableBody.appendChild(cycleSpacerRow)
                 fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
             }
         }
     })
     displayScheduleSummary(schedule, cellIssues)
+    populateJumpToGroup(schedule)
+    populateGroupColorLegend(schedule)
+
+    // Re-apply group highlighting if active
+    if (highlightedGroup) {
+        toggleGroupHighlight(highlightedGroup)
+    }
+
+    // Diff toast (Feature 12)
+    if (diffMap && diffCount > 0) {
+        const totalSlots = schedule.reduce((sum, e) => sum + e.lessons.length, 0)
+        showToast(`${diffCount} of ${totalSlots} assignments changed`, 'info')
+        setTimeout(() => {
+            ui.scheduleTableBody.querySelectorAll('.diff-highlight').forEach(el => el.classList.remove('diff-highlight'))
+        }, 5000)
+    }
 }
 
 /**
@@ -1540,7 +1787,7 @@ function populateDaysOff(holidays) {
 function buildTableHeader() {
     const thead = document.getElementById("schedule-thead")
     if (!thead) return
-    const thClass = 'px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider'
+    const thClass = 'px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
     let html = '<tr><th scope="col" class="px-1 py-3 w-8 action-col"></th>'
     html += `<th scope="col" class="${thClass}">Date</th>`
     html += `<th scope="col" class="${thClass}">Day Cycle</th>`
@@ -1891,6 +2138,7 @@ function initialize() {
                         }
                         scheduleModified = false
                         updateSaveButtonUnsaved(false)
+                        hideEmptyState()
                         ui.scheduleOutput.classList.remove('hidden')
                         showToast('Schedule loaded from Google Drive', 'info')
                     } else {
@@ -1903,6 +2151,150 @@ function initialize() {
                 showToast('Could not load from Drive.', 'error')
                 console.error('Drive load error:', e)
             }
+        })
+    }
+
+    // --- Group highlighting click handler (Feature 7) ---
+    ui.scheduleTableBody.addEventListener('click', (e) => {
+        // Skip if it's a button click or issue indicator
+        if (e.target.closest('.day-delete-btn') || e.target.closest('.cell-issue-indicator')) return
+
+        const cell = e.target.closest('.lesson-group-cell')
+        if (cell) {
+            // On touch devices, handle touch swap instead of highlight
+            if (isTouchDevice && !dragState) {
+                handleTouchSelect(cell)
+                return
+            }
+            const group = cell.dataset.group
+            if (group && !group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) {
+                toggleGroupHighlight(group)
+            }
+            return
+        }
+        // Click on non-group area: clear highlight
+        if (highlightedGroup && !e.target.closest('.weekly-spacer')) {
+            clearGroupHighlight()
+        }
+    })
+
+    // Clear highlight button
+    const clearHighlightBtn = document.getElementById('clear-highlight-btn')
+    if (clearHighlightBtn) {
+        clearHighlightBtn.addEventListener('click', clearGroupHighlight)
+    }
+
+    // --- Jump to Group (Feature 8) ---
+    const jumpToGroup = document.getElementById('jump-to-group')
+    if (jumpToGroup) {
+        jumpToGroup.addEventListener('change', () => {
+            const group = jumpToGroup.value
+            if (!group) return
+            toggleGroupHighlight(group)
+            // Scroll to first match
+            const firstCell = ui.scheduleTableBody.querySelector(`.lesson-group-cell[data-group="${group}"]`)
+            if (firstCell) {
+                firstCell.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            }
+            jumpToGroup.value = ''
+        })
+    }
+
+    // --- Collapsible Weeks (Feature 11) ---
+    ui.scheduleTableBody.addEventListener('click', (e) => {
+        const spacerRow = e.target.closest('.weekly-spacer')
+        if (!spacerRow) return
+        const weekId = spacerRow.dataset.weekId
+        if (!weekId) return
+        if (collapsedWeeks.has(weekId)) {
+            collapsedWeeks.delete(weekId)
+        } else {
+            collapsedWeeks.add(weekId)
+        }
+        if (currentSchedule) displaySchedule(currentSchedule)
+    })
+
+    const collapseAllBtn = document.getElementById('collapse-all-btn')
+    const expandAllBtn = document.getElementById('expand-all-btn')
+    if (collapseAllBtn) {
+        collapseAllBtn.addEventListener('click', () => {
+            if (!currentSchedule) return
+            for (const entry of currentSchedule) {
+                const weekId = getWeekIdentifier(entry.date)
+                // Don't collapse the first week (no spacer to click)
+                if (weekId !== getWeekIdentifier(currentSchedule[0].date)) {
+                    collapsedWeeks.add(weekId)
+                }
+            }
+            displaySchedule(currentSchedule)
+        })
+    }
+    if (expandAllBtn) {
+        expandAllBtn.addEventListener('click', () => {
+            collapsedWeeks.clear()
+            if (currentSchedule) displaySchedule(currentSchedule)
+        })
+    }
+
+    // --- Keyboard Shortcuts (Feature 9) ---
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
+
+        // Ctrl/Cmd+Z: Undo
+        if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault()
+            if (undoStack.length > 0) performUndo()
+            return
+        }
+
+        // Ctrl/Cmd+S: Save
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+            e.preventDefault()
+            if (!currentSchedule) return
+            if (ui.saveDriveBtn && !ui.saveDriveBtn.classList.contains('hidden')) {
+                ui.saveDriveBtn.click()
+            } else {
+                exportTableToCSV(`salk-schedule-${new Date().toISOString().slice(0,10)}.csv`)
+            }
+            return
+        }
+
+        // Escape: dismiss overlays
+        if (e.key === 'Escape') {
+            if (activePopover) { dismissPopover(); return }
+            if (highlightedGroup) { clearGroupHighlight(); return }
+            if (touchSwapState) { clearTouchSelection(); return }
+            if (activeSwapWarning) { dismissSwapWarning(); return }
+        }
+    })
+
+    // --- Unsaved Changes Warning (Feature 1) ---
+    window.addEventListener('beforeunload', (e) => {
+        if (scheduleModified) {
+            e.preventDefault()
+            e.returnValue = ''
+        }
+    })
+
+    // --- Dark Mode (Feature 13) ---
+    const darkToggle = document.getElementById('dark-mode-toggle')
+    const savedTheme = localStorage.getItem('salk-theme')
+    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark')
+    }
+    // Sync icon on load
+    const isDarkOnLoad = document.documentElement.classList.contains('dark')
+    document.getElementById('sun-icon').classList.toggle('hidden', !isDarkOnLoad)
+    document.getElementById('moon-icon').classList.toggle('hidden', isDarkOnLoad)
+
+    if (darkToggle) {
+        darkToggle.addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark')
+            const isDark = document.documentElement.classList.contains('dark')
+            localStorage.setItem('salk-theme', isDark ? 'dark' : 'light')
+            document.getElementById('sun-icon').classList.toggle('hidden', !isDark)
+            document.getElementById('moon-icon').classList.toggle('hidden', isDark)
+            if (currentSchedule) displaySchedule(currentSchedule)
         })
     }
 
@@ -1920,6 +2312,9 @@ function initialize() {
 
     checkStartDateWarning()
     runAllValidations()
+
+    // Show empty state if no schedule loaded (Feature 2)
+    showEmptyState()
 }
 
 // --- Application Entry Point ---
