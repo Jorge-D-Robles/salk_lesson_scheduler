@@ -1762,8 +1762,8 @@ function displaySchedule(schedule, previousSchedule = null) {
         // Alternating row stripes: different tint per day cycle
         if (index % 2 === 0) {
             row.className = entry.dayCycle === 1
-                ? 'bg-blue-50/40 dark:bg-blue-950/20'
-                : 'bg-amber-50/40 dark:bg-amber-950/20'
+                ? 'bg-blue-50/40 dark:bg-blue-900/30'
+                : 'bg-amber-50/40 dark:bg-amber-900/20'
         }
         if (isCollapsed) row.style.display = 'none'
         const formattedDate = entry.date.toLocaleDateString(undefined, {
