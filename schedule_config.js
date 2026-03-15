@@ -7,6 +7,7 @@ const _DAY1 = Object.freeze([1, 4, 7, 8])
 const _DAY2 = Object.freeze([1, 2, 3, 7, 8])
 const _GROUP_COUNT = 22
 const _MAX_PERIODS = Math.max(_DAY1.length, _DAY2.length)
+const _ALL_PERIODS = Object.freeze([...new Set([..._DAY1, ..._DAY2])].sort((a, b) => a - b))
 
 const SCHEDULE_CONFIG = Object.freeze({
     DAY1_PERIODS: _DAY1,
@@ -45,7 +46,8 @@ const SCHEDULE_CONFIG = Object.freeze({
         other:      Object.freeze({ bg: '#ffedd5', border: '#ea580c' }),
     }),
     // Derived (DO NOT edit — computed from above)
+    ALL_PERIODS: _ALL_PERIODS,
     MAX_PERIODS_PER_DAY: _MAX_PERIODS,
-    TABLE_COLUMNS: 3 + _MAX_PERIODS * 2,
+    TABLE_COLUMNS: 3 + _ALL_PERIODS.length,
     TOTAL_TRIALS: _GROUP_COUNT * 2,
 })

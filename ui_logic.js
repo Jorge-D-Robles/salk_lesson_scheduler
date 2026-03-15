@@ -1383,13 +1383,23 @@ function parseCSVToSchedule(csvText) {
     const lines = csvText.split("\n").filter((line) => line.trim() !== "")
     if (lines.length === 0) return []
 
-    // Skip header row if present
-    const startIndex =
-        lines[0].toLowerCase().includes("date") ||
-        lines[0].toLowerCase().includes("period")
-            ? 1
-            : 0
+    // Detect header row and format
+    const hasHeader = lines[0].toLowerCase().includes("date") || lines[0].toLowerCase().includes("period")
+    let headerPeriods = null // New format: period numbers from header columns
 
+    if (hasHeader) {
+        const headerCols = parseScheduleLine(lines[0])
+        // Check if header has "Pd N" columns (new format) vs generic "Period"/"Group" (old format)
+        const pdCols = headerCols.map((col, idx) => {
+            const m = col.match(/^pd\s*(\d+)$/i)
+            return m ? { idx, period: parseInt(m[1], 10) } : null
+        }).filter(Boolean)
+        if (pdCols.length > 0) {
+            headerPeriods = pdCols
+        }
+    }
+
+    const startIndex = hasHeader ? 1 : 0
     const entries = []
     for (let i = startIndex; i < lines.length; i++) {
         const columns = parseScheduleLine(lines[i])
@@ -1401,18 +1411,26 @@ function parseCSVToSchedule(csvText) {
         const dayCycle = parseInt(dayCycleStr, 10)
         const entry = new ScheduleEntry(dateObj, isNaN(dayCycle) ? 1 : dayCycle)
 
-        const firstPeriodIndex = columns.findIndex((col) =>
-            col.toLowerCase().startsWith("pd")
-        )
-        if (firstPeriodIndex === -1) continue
-
-        for (let j = firstPeriodIndex; j < columns.length; j += 2) {
-            const periodStr = columns[j]
-            const group = columns[j + 1]
-            if (!periodStr || !group) continue
-            const period = parseInt(periodStr.replace(/\D/g, ""), 10)
-            if (!isNaN(period)) {
-                entry.addLesson(period, group)
+        if (headerPeriods) {
+            // New format: each column is a period, cell value is the group
+            for (const { idx, period } of headerPeriods) {
+                const group = columns[idx] ? columns[idx].trim() : ''
+                if (group) entry.addLesson(period, group)
+            }
+        } else {
+            // Old format: alternating Pd X, Group pairs
+            const firstPeriodIndex = columns.findIndex((col) =>
+                col.toLowerCase().startsWith("pd")
+            )
+            if (firstPeriodIndex === -1) continue
+            for (let j = firstPeriodIndex; j < columns.length; j += 2) {
+                const periodStr = columns[j]
+                const group = columns[j + 1]
+                if (!periodStr || !group) continue
+                const period = parseInt(periodStr.replace(/\D/g, ""), 10)
+                if (!isNaN(period)) {
+                    entry.addLesson(period, group)
+                }
             }
         }
         entries.push(entry)
@@ -1504,36 +1522,53 @@ function getScheduleParameters() {
 
         const parsedHistory = []
         let lines = historyText.split("\n")
+        // Detect and parse header for new period-column format
+        let histHeaderPeriods = null
         if (
             lines.length > 0 &&
             (lines[0].toLowerCase().includes("date") ||
                 lines[0].toLowerCase().includes("period"))
         ) {
+            const headerCols = parseScheduleLine(lines[0])
+            const pdCols = headerCols.map((col, idx) => {
+                const m = col.match(/^pd\s*(\d+)$/i)
+                return m ? { idx, period: parseInt(m[1], 10) } : null
+            }).filter(Boolean)
+            if (pdCols.length > 0) histHeaderPeriods = pdCols
             lines.shift()
         }
         for (const line of lines) {
             if (line.trim() === "") continue
             const columns = parseScheduleLine(line)
-            const firstPeriodIndex = columns.findIndex((col) =>
-                col.toLowerCase().startsWith("pd")
-            )
-            if (firstPeriodIndex === -1) continue
             const dateObj = new Date(columns[0])
+            if (isNaN(dateObj.getTime())) continue
             const yyyy = dateObj.getFullYear()
             const mm = String(dateObj.getMonth() + 1).padStart(2, "0")
             const dd = String(dateObj.getDate()).padStart(2, "0")
             const formattedDate = `${yyyy}-${mm}-${dd}`
-            for (let i = firstPeriodIndex; i < columns.length; i += 2) {
-                const periodStr = columns[i]
-                const group = columns[i + 1]
-                if (periodStr && group) {
-                    const period = parseInt(periodStr.replace(/\D/g, ""), 10)
-                    if (!isNaN(period)) {
-                        parsedHistory.push({
-                            date: formattedDate,
-                            period,
-                            group,
-                        })
+
+            if (histHeaderPeriods) {
+                // New format: period columns with group values
+                for (const { idx, period } of histHeaderPeriods) {
+                    const group = columns[idx] ? columns[idx].trim() : ''
+                    if (group) {
+                        parsedHistory.push({ date: formattedDate, period, group })
+                    }
+                }
+            } else {
+                // Old format: alternating Pd X, Group pairs
+                const firstPeriodIndex = columns.findIndex((col) =>
+                    col.toLowerCase().startsWith("pd")
+                )
+                if (firstPeriodIndex === -1) continue
+                for (let i = firstPeriodIndex; i < columns.length; i += 2) {
+                    const periodStr = columns[i]
+                    const group = columns[i + 1]
+                    if (periodStr && group) {
+                        const period = parseInt(periodStr.replace(/\D/g, ""), 10)
+                        if (!isNaN(period)) {
+                            parsedHistory.push({ date: formattedDate, period, group })
+                        }
                     }
                 }
             }
@@ -1714,34 +1749,44 @@ function displaySchedule(schedule, previousSchedule = null) {
             day: "numeric",
         })
 
+        // Build period number -> lesson index lookup
+        const periodToIdx = {}
+        for (let i = 0; i < entry.lessons.length; i++) {
+            const pNum = parseInt(entry.lessons[i].period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+            periodToIdx[pNum] = i
+        }
+        const dayPeriods = entry.dayCycle === 1 ? SCHEDULE_CONFIG.DAY1_PERIODS : SCHEDULE_CONFIG.DAY2_PERIODS
+
         let rowHTML = `<td class="px-1 py-3 text-center action-col"><button class="day-delete-btn" data-day-index="${index}" title="Remove this day">&times;</button></td><td class="px-2 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">${formattedDate}</td><td class="px-2 py-3 whitespace-nowrap text-sm text-center text-gray-700 dark:text-gray-300">${entry.dayCycle}</td>`
-        for (let i = 0; i < SCHEDULE_CONFIG.MAX_PERIODS_PER_DAY; i++) {
-            if (entry.lessons[i]) {
-                const isMU = entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
+        for (const p of SCHEDULE_CONFIG.ALL_PERIODS) {
+            const lessonIdx = periodToIdx[p]
+            if (lessonIdx !== undefined) {
+                const lesson = entry.lessons[lessonIdx]
+                const isMU = lesson.group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)
                 const groupClass = isMU ? "text-red-600" : "text-gray-800 dark:text-gray-200"
-                const bgColor = isMU ? '#f3f4f6' : getGroupColor(entry.lessons[i].group)
-                const printColor = isMU ? null : getGroupPrintColor(entry.lessons[i].group)
+                const bgColor = isMU ? '#f3f4f6' : getGroupColor(lesson.group)
+                const printColor = isMU ? null : getGroupPrintColor(lesson.group)
                 const printVars = printColor ? `; --print-bg: ${printColor.bg}; --print-border: ${printColor.border}` : ''
                 const bgStyle = bgColor ? ` style="background-color: ${bgColor}${printVars}"` : (printVars ? ` style="${printVars.slice(2)}"` : '')
-                const issues = cellIssues.get(`${index}-${i}`)
+                const issues = cellIssues.get(`${index}-${lessonIdx}`)
                 const indicator = issues
                     ? `<span class="cell-issue-indicator" data-issues="${issues.join('\n').replace(/"/g, '&quot;')}">&#9888;</span>`
                     : ''
-                // Diff detection (Feature 12)
                 let diffClass = ''
                 if (diffMap) {
                     const dateStr = toLocalDateString(entry.date)
-                    const prevGroup = diffMap.get(`${dateStr}-${entry.lessons[i].period}`)
-                    if (prevGroup !== undefined && prevGroup !== entry.lessons[i].group) {
+                    const prevGroup = diffMap.get(`${dateStr}-${lesson.period}`)
+                    if (prevGroup !== undefined && prevGroup !== lesson.group) {
                         diffClass = ' diff-highlight'
                         diffCount++
                     }
                 }
                 const draggableAttr = isTouchDevice ? '' : 'draggable="true" '
-                rowHTML += `<td class="px-2 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${entry.lessons[i].period}</td><td ${draggableAttr}class="px-2 py-3 whitespace-nowrap text-sm ${groupClass} font-semibold lesson-group-cell${diffClass}" data-day-index="${index}" data-lesson-index="${i}" data-group="${entry.lessons[i].group}"${bgStyle}>${entry.lessons[i].group}${indicator}</td>`
+                rowHTML += `<td ${draggableAttr}class="px-2 py-3 whitespace-nowrap text-sm text-center ${groupClass} font-semibold lesson-group-cell${diffClass}" data-day-index="${index}" data-lesson-index="${lessonIdx}" data-group="${lesson.group}"${bgStyle}>${lesson.group}${indicator}</td>`
+            } else if (!dayPeriods.includes(p)) {
+                rowHTML += '<td class="px-2 py-3 bg-gray-50 dark:bg-gray-750"></td>'
             } else {
-                rowHTML +=
-                    '<td class="px-2 py-3"></td><td class="px-2 py-3"></td>'
+                rowHTML += '<td class="px-2 py-3"></td>'
             }
         }
         row.innerHTML = rowHTML
@@ -1789,32 +1834,39 @@ function displaySchedule(schedule, previousSchedule = null) {
  * @param {string} filename - The desired name for the downloaded file.
  */
 function exportTableToCSV(filename) {
+    if (!currentSchedule || currentSchedule.length === 0) return
     const csv = []
-    const rows = document.querySelectorAll("#schedule-table tr")
-    const header = []
-    document
-        .querySelectorAll("#schedule-table th")
-        .forEach((th) => {
-            if (th.classList.contains('action-col')) return
-            header.push(`"${th.innerText}"`)
-        })
-    csv.push(header.join(","))
+    // Build header: Date, Day Cycle, then Pd N for each period in ALL_PERIODS
+    const header = ['"Date"', '"Day Cycle"']
+    for (const p of SCHEDULE_CONFIG.ALL_PERIODS) {
+        header.push(`"Pd ${p}"`)
+    }
+    csv.push(header.join(','))
 
-    rows.forEach((row) => {
-        if (row.classList.contains("weekly-spacer")) return
-        if (row.classList.contains("cycle-spacer")) {
-            csv.push("")
-            return
+    let fourWeekBoundary = new Date(currentSchedule[0].date.getTime())
+    fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
+
+    for (const entry of currentSchedule) {
+        // Insert blank row for cycle boundary
+        if (entry.date >= fourWeekBoundary) {
+            csv.push('')
+            fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
         }
-        const cols = row.querySelectorAll("td")
-        const rowData = []
-        cols.forEach((col) => {
-            if (col.classList.contains('action-col')) return
-            rowData.push('"' + col.innerText.replace(/"/g, '""') + '"')
+        const dateStr = entry.date.toLocaleDateString(undefined, {
+            weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
         })
-        csv.push(rowData.join(","))
-    })
-    downloadCSV(csv.join("\n"), filename)
+        const periodMap = {}
+        for (const lesson of entry.lessons) {
+            const pNum = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+            periodMap[pNum] = lesson.group
+        }
+        const row = [`"${dateStr}"`, `"${entry.dayCycle}"`]
+        for (const p of SCHEDULE_CONFIG.ALL_PERIODS) {
+            row.push(`"${periodMap[p] || ''}"`)
+        }
+        csv.push(row.join(','))
+    }
+    downloadCSV(csv.join('\n'), filename)
 }
 
 /**
@@ -1884,13 +1936,12 @@ function populateDaysOff(holidays) {
 function buildTableHeader() {
     const thead = document.getElementById("schedule-thead")
     if (!thead) return
-    const thClass = 'px-2 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
+    const thClass = 'px-2 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
     let html = '<tr><th scope="col" class="px-1 py-3 w-8 action-col"></th>'
-    html += `<th scope="col" class="${thClass}">Date</th>`
-    html += `<th scope="col" class="${thClass}">Day Cycle</th>`
-    for (let i = 0; i < SCHEDULE_CONFIG.MAX_PERIODS_PER_DAY; i++) {
-        html += `<th scope="col" class="${thClass}">Period</th>`
-        html += `<th scope="col" class="${thClass}">Group</th>`
+    html += `<th scope="col" class="${thClass} text-left">Date</th>`
+    html += `<th scope="col" class="${thClass} text-center">Day</th>`
+    for (const p of SCHEDULE_CONFIG.ALL_PERIODS) {
+        html += `<th scope="col" class="${thClass} text-center">Pd ${p}</th>`
     }
     html += '</tr>'
     thead.innerHTML = html
