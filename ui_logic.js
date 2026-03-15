@@ -323,9 +323,10 @@ function populateGroupColorLegend(schedule) {
     const sorted = [...groups].sort()
     for (const g of sorted) {
         const span = document.createElement('span')
-        span.className = 'inline-flex items-center px-1.5 py-0.5 rounded font-medium'
+        span.className = 'inline-flex items-center px-1.5 py-0.5 rounded font-medium cursor-pointer hover:ring-2 hover:ring-indigo-400'
         span.style.backgroundColor = getGroupColor(g)
         span.textContent = g
+        span.addEventListener('click', () => toggleGroupHighlight(g))
         legend.appendChild(span)
     }
     legend.classList.remove('hidden')
