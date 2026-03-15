@@ -1784,7 +1784,7 @@ function displaySchedule(schedule, previousSchedule = null) {
                 const draggableAttr = isTouchDevice ? '' : 'draggable="true" '
                 rowHTML += `<td ${draggableAttr}class="px-2 py-3 whitespace-nowrap text-sm text-center ${groupClass} font-semibold lesson-group-cell${diffClass}" data-day-index="${index}" data-lesson-index="${lessonIdx}" data-group="${lesson.group}"${bgStyle}>${lesson.group}${indicator}</td>`
             } else if (!dayPeriods.includes(p)) {
-                rowHTML += '<td class="px-2 py-3 bg-gray-50 dark:bg-gray-750"></td>'
+                rowHTML += '<td class="px-2 py-3 bg-gray-50 dark:bg-gray-900"></td>'
             } else {
                 rowHTML += '<td class="px-2 py-3"></td>'
             }
