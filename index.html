@@ -243,6 +243,42 @@
                 margin-bottom: 0.15rem;
             }
 
+            /* Instant help tooltips (replacing native title delay) */
+            .help-tip {
+                position: relative;
+            }
+            .help-tip::after {
+                content: attr(data-tooltip);
+                position: absolute;
+                bottom: calc(100% + 6px);
+                left: 50%;
+                transform: translateX(-50%);
+                background: #1f2937;
+                color: #f9fafb;
+                font-size: 0.75rem;
+                font-weight: 400;
+                line-height: 1.4;
+                padding: 0.4rem 0.6rem;
+                border-radius: 0.375rem;
+                white-space: normal;
+                width: max-content;
+                max-width: 260px;
+                pointer-events: none;
+                opacity: 0;
+                visibility: hidden;
+                z-index: 50;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+            }
+            .help-tip:hover::after,
+            .help-tip:focus::after {
+                opacity: 1;
+                visibility: visible;
+            }
+            html.dark .help-tip::after {
+                background: #e5e7eb;
+                color: #111827;
+            }
+
             /* Feature 5: Sticky save/export buttons */
             .sticky-actions {
                 box-shadow: 0 -2px 8px rgba(0,0,0,0.06);
@@ -467,7 +503,7 @@
                                 for="day-cycle"
                                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
                                 >New Schedule Starting Day Cycle
-                                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-white text-xs cursor-help ml-1 align-middle" title="The school alternates between Day 1 and Day 2. Day 1 has periods 1,4,7,8. Day 2 has periods 1,2,3,7,8.">?</span>
+                                <span class="help-tip inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-white text-xs cursor-help ml-1 align-middle" data-tooltip="The school alternates between Day 1 and Day 2. Day 1 has periods 1,4,7,8. Day 2 has periods 1,2,3,7,8." tabindex="0">?</span>
                             </label>
                             <input
                                 type="number"
@@ -515,7 +551,7 @@
                                 for="days-off"
                                 class="block text-sm font-medium text-gray-700 dark:text-gray-300"
                                 >Days Off
-                                <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-white text-xs cursor-help ml-1 align-middle" title="Add holidays, professional development days, or any dates when lessons won't occur.">?</span>
+                                <span class="help-tip inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-white text-xs cursor-help ml-1 align-middle" data-tooltip="Add holidays, professional development days, or any dates when lessons won't occur." tabindex="0">?</span>
                             </label>
                             <div id="days-off-container" class="space-y-2 mt-1">
                                 <div class="flex items-center space-x-2">
@@ -603,7 +639,7 @@
                                     class="block text-sm font-medium text-gray-700 dark:text-gray-300"
                                 >
                                     Paste Previous 4 Weeks of Schedule Data
-                                    <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-white text-xs cursor-help ml-1 align-middle" title="Paste the previous 4 weeks of schedule data to ensure balanced continuation.">?</span>
+                                    <span class="help-tip inline-flex items-center justify-center w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600 text-white text-xs cursor-help ml-1 align-middle" data-tooltip="Paste the previous 4 weeks of schedule data to ensure balanced continuation." tabindex="0">?</span>
                                 </label>
                                 <textarea
                                     id="history-data"
