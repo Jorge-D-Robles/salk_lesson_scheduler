@@ -2236,6 +2236,20 @@ function initialize() {
     }
 
     // --- Bulk Days Off ---
+    const bulkRangeStart = document.getElementById('bulk-range-start')
+    const bulkRangeEnd = document.getElementById('bulk-range-end')
+    if (bulkRangeStart && bulkRangeEnd) {
+        bulkRangeStart.addEventListener('change', () => {
+            if (!bulkRangeStart.value) return
+            const next = new Date(bulkRangeStart.value + 'T00:00:00')
+            next.setDate(next.getDate() + 1)
+            const yyyy = next.getFullYear()
+            const mm = String(next.getMonth() + 1).padStart(2, '0')
+            const dd = String(next.getDate()).padStart(2, '0')
+            bulkRangeEnd.value = `${yyyy}-${mm}-${dd}`
+            bulkRangeEnd.min = bulkRangeStart.value
+        })
+    }
     const bulkRangeBtn = document.getElementById('bulk-range-btn')
     const bulkPasteToggle = document.getElementById('bulk-paste-toggle')
     const bulkPasteSection = document.getElementById('bulk-paste-section')
