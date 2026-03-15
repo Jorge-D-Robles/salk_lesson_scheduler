@@ -791,11 +791,14 @@ function executeGroupSwap(sourceDayIndex, sourceLessonIndex, targetDayIndex, tar
                     schedule.achievedDayRule = result.achievedDayRule
                     currentSchedule = schedule
                     displaySchedule(currentSchedule)
+                    ui.scheduleOutput.classList.remove('hidden')
                     showToast('Schedule rebuilt from swapped day.', 'info')
                 })
                 .catch(error => {
                     console.error('Error rebuilding schedule:', error)
                     showToast(`Rebuild failed: ${error.message}`, 'error')
+                    // Restore schedule visibility on failure too
+                    ui.scheduleOutput.classList.remove('hidden')
                 })
                 .finally(() => {
                     hideLoading()
@@ -1699,6 +1702,16 @@ function displaySchedule(schedule, previousSchedule = null) {
         }
     }
 
+    // Pre-compute violation counts per week for badges
+    const weekViolations = new Map()
+    if (cellIssues && cellIssues.size > 0) {
+        for (const [key] of cellIssues) {
+            const dayIdx = parseInt(key.split('-')[0], 10)
+            const weekId = getWeekIdentifier(schedule[dayIdx].date)
+            weekViolations.set(weekId, (weekViolations.get(weekId) || 0) + 1)
+        }
+    }
+
     // Track weeks for collapsible feature
     const weekRows = new Map() // weekId -> [row elements]
     let currentWeekId = null
@@ -1729,7 +1742,11 @@ function displaySchedule(schedule, previousSchedule = null) {
             spacerRow.className = "bg-gray-200 dark:bg-gray-700 weekly-spacer cursor-pointer hover:bg-gray-300 dark:hover:bg-gray-600"
             spacerRow.dataset.weekId = entryWeekIdentifier
             const iconClass = isCollapsed ? 'week-toggle-icon collapsed' : 'week-toggle-icon'
-            spacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1 px-2 text-xs text-gray-600 dark:text-gray-300 select-none"><span class="${iconClass}">&#9660;</span>${isCollapsed ? `Week of ${weekLabel} (${weekDays} days, ${weekLessons} lessons)` : ''}</td>`
+            const wViolations = weekViolations.get(entryWeekIdentifier) || 0
+            const violationBadge = wViolations > 0
+                ? ` <span class="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white ml-2">${wViolations}</span>`
+                : ''
+            spacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1 px-2 text-xs text-gray-600 dark:text-gray-300 select-none"><span class="${iconClass}">&#9660;</span>${isCollapsed ? `Week of ${weekLabel} (${weekDays} days, ${weekLessons} lessons)` : ''}${violationBadge}</td>`
             ui.scheduleTableBody.appendChild(spacerRow)
             currentWeekIdentifier = entryWeekIdentifier
             currentWeekId = entryWeekIdentifier
@@ -1742,6 +1759,12 @@ function displaySchedule(schedule, previousSchedule = null) {
         const row = document.createElement("tr")
         row.id = `schedule-row-${index}`
         row.dataset.weekId = entryWeekIdentifier
+        // Alternating row stripes: different tint per day cycle
+        if (index % 2 === 0) {
+            row.className = entry.dayCycle === 1
+                ? 'bg-blue-50/40 dark:bg-blue-950/20'
+                : 'bg-amber-50/40 dark:bg-amber-950/20'
+        }
         if (isCollapsed) row.style.display = 'none'
         const formattedDate = entry.date.toLocaleDateString(undefined, {
             weekday: "short",
