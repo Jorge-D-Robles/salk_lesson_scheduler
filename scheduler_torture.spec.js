@@ -20,7 +20,7 @@ const assertNoDayRuleConflicts = (schedule, dayRule, initialAssignments = {}) =>
             if (!lastSeen[group]) lastSeen[group] = {}
             const last = lastSeen[group][period]
             if (last) {
-                const diffDays = Math.floor((dayEntry.date - last) / oneDayMs)
+                const diffDays = Math.round((dayEntry.date - last) / oneDayMs)
                 expect(diffDays).toBeGreaterThanOrEqual(
                     dayRule,
                     `${dayRule}-day conflict: Group ${group} in ${period} on ${dayEntry.date.toDateString()}, only ${diffDays} days after ${last.toDateString()}.`

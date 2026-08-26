@@ -1,6 +1,6 @@
 # Salk Middle School Lesson Scheduler
 
-A constraint satisfaction solver that generates fair, conflict-free music lesson schedules for 22 student groups at Jonas E. Salk Middle School. Built as a static web app — no server, no build step, just open `index.html` in a browser.
+A constraint satisfaction solver that generates fair, conflict-free music lesson schedules for 24 student groups (Groups A–X) at Jonas E. Salk Middle School. Built as a static web app — no server, no build step, just open `index.html` in a browser.
 
 ## Running Tests
 
@@ -31,18 +31,20 @@ node testing/analyze_bias.mjs
 
 The music program pulls students out of academic classes for weekly instrumental lessons. This creates a scheduling conflict: if a student always misses the same class for their lesson, they fall behind in that subject. The scheduler must rotate which class each student misses while satisfying several hard constraints simultaneously.
 
-### The Setup
+### The Setup (2026–2027 School Year)
 
-The school uses a **two-day rotating cycle**. On odd-numbered school days (Day 1), lessons can happen during periods 1, 4, 7, and 8. On even-numbered school days (Day 2), lessons can happen during periods 1, 2, 3, 7, and 8. The cycle advances only on school days — weekends and days off don't count.
+The school uses a **two-day rotating cycle**. On odd-numbered school days (Day 1), lessons can happen during periods 1, 3, 4, and 7. On even-numbered school days (Day 2), lessons can happen during periods 1, 3, 4, 7, 8, and 9. The cycle advances only on school days — weekends and days off don't count.
 
 This means:
-- Day 1 has **4 lesson slots**
-- Day 2 has **5 lesson slots**
-- A typical 5-day school week has either 22 or 23 total slots (depending on whether it starts on Day 1 or Day 2)
-- Periods 1, 7, and 8 are **shared** — they appear on both day types
-- Period 4 is exclusive to Day 1; periods 2 and 3 are exclusive to Day 2
+- Day 1 has **4 lesson slots** (periods 1, 3, 4, 7)
+- Day 2 has **6 lesson slots** (periods 1, 3, 4, 7, 8, 9)
+- A typical 5-day school week has either 24 or 26 total slots:
+  - Day 1 start week: $3 \times 4 + 2 \times 6 = 24$ slots (exact match with 24 groups)
+  - Day 2 start week: $3 \times 6 + 2 \times 4 = 26$ slots (2 extra slots assigned to Make-Up slots)
+- Periods 1, 3, 4, and 7 are **shared** — they appear on both day types
+- Periods 8 and 9 are **exclusive to Day 2**
 
-There are **22 student groups** (labeled A through V), and each must have exactly one lesson per week. When a week has 23 slots but only 22 real groups, the extra slot is filled with a special **MU (Make-Up)** placeholder — a flexible period for extra help or makeup work.
+There are **24 student groups** (labeled A through X), and each must have exactly one lesson per week. When a week has 26 slots, the 2 extra slots are filled with special **MU (Make-Up)** placeholders — flexible periods for extra help or makeup work (at most 1 MU per day, Day 2 days only).
 
 ### The Constraints
 
@@ -52,13 +54,13 @@ In priority order, the scheduler enforces:
 
 2. **Weekly uniqueness**: Each group appears at most once per calendar week. (They need exactly one lesson per week.)
 
-3. **MU limit**: At most one MU slot per school day.
+3. **MU limit**: At most one MU slot per school day (Day 2 days only). Capped at 2 MU slots per 26-slot week.
 
 4. **Running balance**: At every point in the schedule, the difference between the most-taught and least-taught group must be ≤ 1. This prevents any group from getting ahead or falling behind as the year progresses.
 
-5. **End-of-schedule balance**: The final lesson count spread across all groups must be ≤ 2.
+5. **End-of-schedule balance**: The final lesson count spread across all groups must be ≤ 1.
 
-6. **Cycle fairness** (best effort): All 22 groups should appear before any group repeats, like dealing a deck of cards.
+6. **Cycle fairness** (best effort): All 24 groups should appear before any group repeats, like dealing a deck of cards.
 
 ### Why This Is Hard
 

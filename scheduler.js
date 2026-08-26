@@ -348,7 +348,11 @@ class ScheduleBuilder {
         const validGroupsPerSlot = slots.map((slot, slotIndex) => {
             const valid = []
             for (const group of candidateGroups) {
-                if (group === SCHEDULE_CONFIG.MU_TOKEN) { valid.push(group); continue }
+                if (group === SCHEDULE_CONFIG.MU_TOKEN) {
+                    if (weekDays[slot.dayIdx].dayCycle % 2 !== 0) continue // Day 1 never gets MU
+                    valid.push(group)
+                    continue
+                }
                 if (calendarFloor > 0) {
                     const lastDate = periodAssignments[group]?.[slot.period]
                     if (lastDate && Math.round((slot.date - lastDate) / oneDayMs) < calendarFloor) continue
@@ -362,13 +366,44 @@ class ScheduleBuilder {
             // day-stability and position-stability to preserve cycle ordering.
             // MU always last.
             const slotDow = slot.date.getDay()
+            const isLatePeriod = slot.period === 8 || slot.period === 9
+            const needsMU = numSlots > realCandidates
+
+            // Helper to count how many Day 1 periods (1, 3, 4, 7) group g has used in prior 28 days
+            const getDay1Pressure = (g) => {
+                if (g === SCHEDULE_CONFIG.MU_TOKEN) return 0
+                let count = 0
+                for (const p of SCHEDULE_CONFIG.DAY1_PERIODS) {
+                    const lastDate = periodAssignments[g]?.[p]
+                    if (lastDate && Math.round((slot.date - lastDate) / oneDayMs) < calendarFloor) {
+                        count++
+                    }
+                }
+                return count
+            }
+
             valid.sort((a, b) => {
-                if (a === SCHEDULE_CONFIG.MU_TOKEN) return 1
-                if (b === SCHEDULE_CONFIG.MU_TOKEN) return -1
+                if (needsMU && isLatePeriod) {
+                    if (a === SCHEDULE_CONFIG.MU_TOKEN) return -1
+                    if (b === SCHEDULE_CONFIG.MU_TOKEN) return 1
+                } else {
+                    if (a === SCHEDULE_CONFIG.MU_TOKEN) return 1
+                    if (b === SCHEDULE_CONFIG.MU_TOKEN) return -1
+                }
                 if (balanceCounts) {
                     const countA = balanceCounts[a] || 0
                     const countB = balanceCounts[b] || 0
                     if (countA !== countB) return countA - countB
+                }
+                // Day 1 pressure relief: rotate groups between Day 1 periods and Day 2 exclusive periods (8, 9)
+                if (isLatePeriod) {
+                    const pressA = getDay1Pressure(a)
+                    const pressB = getDay1Pressure(b)
+                    if (pressA !== pressB) return pressB - pressA
+                } else {
+                    const pressA = getDay1Pressure(a)
+                    const pressB = getDay1Pressure(b)
+                    if (pressA !== pressB) return pressA - pressB
                 }
                 // Day stability: prefer groups that were on the same
                 // physical day last week to minimize position shifts
@@ -405,8 +440,10 @@ class ScheduleBuilder {
         const usedGroups = new Set()
         const muPerDay = new Array(numDays).fill(0)
         const assignedPerDay = new Array(numDays).fill(0)
+        let totalMU = 0
+        const maxWeekMU = Math.max(0, numSlots - realCandidates)
         let backtracks = 0
-        const BACKTRACK_LIMIT = 80000
+        const BACKTRACK_LIMIT = 5000
 
         // All groups for balance checking
         const allGroups = runningCounts ? Object.keys(runningCounts) : null
@@ -414,6 +451,17 @@ class ScheduleBuilder {
         const solve = (depth) => {
             if (depth >= numSlots) return true
             if (++backtracks > BACKTRACK_LIMIT) return false
+
+            // Feasibility check: remaining real candidates + remaining allowable MU must >= unassigned slots
+            let maxRemainingMU = Math.max(0, maxWeekMU - totalMU)
+            let perDayMU = 0
+            for (let d = 0; d < numDays; d++) {
+                if (weekDays[d].dayCycle % 2 === 0) {
+                    perDayMU += Math.max(0, SCHEDULE_CONFIG.MU_LIMIT_PER_DAY - muPerDay[d])
+                }
+            }
+            maxRemainingMU = Math.min(maxRemainingMU, perDayMU)
+            if ((realCandidates - usedGroups.size) + maxRemainingMU < (numSlots - depth)) return false
 
             // Day-first MRV: process earliest day's slots first (for running
             // balance), then within each day pick the most constrained slot.
@@ -425,7 +473,7 @@ class ScheduleBuilder {
                 let count = 0
                 for (const g of validGroupsPerSlot[i]) {
                     if (g === SCHEDULE_CONFIG.MU_TOKEN) {
-                        if (muPerDay[slots[i].dayIdx] < 1) count++
+                        if (totalMU < maxWeekMU && muPerDay[slots[i].dayIdx] < SCHEDULE_CONFIG.MU_LIMIT_PER_DAY && weekDays[slots[i].dayIdx].dayCycle % 2 === 0) count++
                     } else {
                         if (!usedGroups.has(g)) count++
                     }
@@ -444,8 +492,11 @@ class ScheduleBuilder {
 
             for (const group of validGroupsPerSlot[idx]) {
                 if (group === SCHEDULE_CONFIG.MU_TOKEN) {
+                    if (totalMU >= maxWeekMU) continue
                     if (muPerDay[slot.dayIdx] >= SCHEDULE_CONFIG.MU_LIMIT_PER_DAY) continue
+                    if (weekDays[slot.dayIdx].dayCycle % 2 !== 0) continue
                     assignment[idx] = group
+                    totalMU++
                     muPerDay[slot.dayIdx]++
                     assignedPerDay[slot.dayIdx]++
 
@@ -464,9 +515,10 @@ class ScheduleBuilder {
                     }
 
                     if (balanceOk && solve(depth + 1)) return true
-                    if (backtracks > BACKTRACK_LIMIT) { assignedPerDay[slot.dayIdx]--; muPerDay[slot.dayIdx]--; assignment[idx] = null; return false }
+                    if (backtracks > BACKTRACK_LIMIT) { assignedPerDay[slot.dayIdx]--; muPerDay[slot.dayIdx]--; totalMU--; assignment[idx] = null; return false }
                     assignedPerDay[slot.dayIdx]--
                     muPerDay[slot.dayIdx]--
+                    totalMU--
                     assignment[idx] = null
                 } else {
                     if (usedGroups.has(group)) continue
@@ -637,9 +689,9 @@ class ScheduleBuilder {
                 dayResults[dayIdx].push({ period, group })
             }
 
-            // Balance-first reordering: assign groups to days in count order,
-            // then verify period feasibility via per-day solver.
-            {
+            // Balance-first reordering is bypassed because _solveWeekAssignment already
+            // enforces running balance directly during backtracking with full week-level coordination.
+            if (false) {
                 const oneDayMs2 = SCHEDULE_CONFIG.ONE_DAY_MS
 
                 // Collect non-MU groups from week solver and count MU per day
@@ -1012,27 +1064,18 @@ class ScheduleBuilder {
                             if (!check28Day(hg, p2, schedule[d2].date, skipSet)) continue
                             if (!check28Day(lg, p1, schedule[d1].date, skipSet)) continue
 
-                            // Verify no new violations in [d1, d2-1]
-                            // In this range: hg count -1, lg count +1
-                            let ok = true
-                            for (let d = d1; d < d2; d++) {
-                                const modHg = rc[d][hg] - 1
-                                const modLg = rc[d][lg] + 1
-                                // Find max and min with the modified values
-                                let hi = modHg, lo = modHg
-                                for (const g of allGroups) {
-                                    const v = (g === hg) ? modHg : (g === lg) ? modLg : rc[d][g]
-                                    if (v > hi) hi = v
-                                    if (v < lo) lo = v
-                                }
-                                if (hi - lo > 1) { ok = false; break }
-                            }
-
-                            if (ok) {
-                                schedule[d1].lessons[li1].group = lg
-                                schedule[d2].lessons[li2].group = hg
+                            // Apply swap and verify total running balance violations strictly decrease
+                            const curV = this._runningBalanceViolations(schedule)
+                            schedule[d1].lessons[li1].group = lg
+                            schedule[d2].lessons[li2].group = hg
+                            const newV = this._runningBalanceViolations(schedule)
+                            if (newV < curV) {
                                 improved = true
+                                break
                             }
+                            // Revert
+                            schedule[d1].lessons[li1].group = hg
+                            schedule[d2].lessons[li2].group = lg
                         }
                     }
                 }
@@ -1054,6 +1097,8 @@ class ScheduleBuilder {
 
                     for (const od of weekDays) {
                         if (improved) break
+                        // Only swap with a later day in the same week so we move high-count group later, not earlier
+                        if (od <= violationDay) continue
                         for (let oj = 0; oj < schedule[od].lessons.length; oj++) {
                             const other = schedule[od].lessons[oj]
                             if (other.group === SCHEDULE_CONFIG.MU_TOKEN) continue
@@ -1068,12 +1113,20 @@ class ScheduleBuilder {
                                 if (!check28Day(other.group, p1, schedule[violationDay].date, skipSet)) continue
                             }
 
-                            // Apply swap (constraints already verified above)
+                            // Apply swap and verify running balance does not worsen
                             const g1 = lesson.group
-                            lesson.group = other.group
+                            const g2 = other.group
+                            const curV = this._runningBalanceViolations(schedule)
+                            lesson.group = g2
                             other.group = g1
-                            improved = true
-                            break
+                            const newV = this._runningBalanceViolations(schedule)
+                            if (newV < curV) {
+                                improved = true
+                                break
+                            }
+                            // Revert if no improvement
+                            lesson.group = g1
+                            other.group = g2
                         }
                     }
                 }
@@ -1129,20 +1182,24 @@ class ScheduleBuilder {
 
         const maxC = Math.max(...Object.values(counts))
         const minC = Math.min(...Object.values(counts))
+        const highGroups = allGroups.filter(g => counts[g] === maxC)
         const lowGroups = allGroups.filter(g => counts[g] === minC)
 
         const vDate = schedule[violationDay].date
         const vPeriods = schedule[violationDay].lessons.map(l =>
             parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
         )
+        const highPeriods = schedule[violationDay].lessons
+            .filter(l => highGroups.includes(l.group))
+            .map(l => parseInt(l.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10))
 
         for (const lg of lowGroups) {
-            // Check which periods lg can use on vDay
-            const availableP = vPeriods.filter(p => check28Day(lg, p, vDate, new Set([violationDay])))
-            if (availableP.length > 0) continue  // lg has options, standard repair should handle it
+            // Check which high-group periods lg can use on vDay
+            const availableP = highPeriods.filter(p => check28Day(lg, p, vDate, new Set([violationDay])))
+            if (availableP.length > 0) continue  // lg can take a high-group period, standard repair should handle it
 
-            // lg blocked from ALL periods. Try unblocking one.
-            for (const targetP of vPeriods) {
+            // lg blocked from high-group periods. Try unblocking one.
+            for (const targetP of (highPeriods.length > 0 ? highPeriods : vPeriods)) {
                 // Find the day within 28 days where lg has period targetP
                 for (let d_block = 0; d_block < schedule.length; d_block++) {
                     if (d_block === violationDay) continue
@@ -1426,6 +1483,32 @@ class ScheduleBuilder {
         return violations
     }
 
+    _count28DayViolations(schedule, calendarFloor) {
+        const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
+        let count = 0
+        const history = {}
+        for (let d = 0; d < schedule.length; d++) {
+            const day = schedule[d]
+            for (const lesson of day.lessons) {
+                if (lesson.group === SCHEDULE_CONFIG.MU_TOKEN) continue
+                const p = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
+                if (this._hasHistoricalConflict(lesson.group, p, day.date, calendarFloor)) count++
+                if (!history[lesson.group]) history[lesson.group] = {}
+                if (!history[lesson.group][p]) history[lesson.group][p] = []
+                history[lesson.group][p].push(day.date)
+            }
+        }
+        for (const g in history) {
+            for (const p in history[g]) {
+                const dates = history[g][p]
+                for (let i = 1; i < dates.length; i++) {
+                    if (Math.round((dates[i] - dates[i - 1]) / oneDayMs) < calendarFloor) count++
+                }
+            }
+        }
+        return count
+    }
+
     buildSchedule(progress) {
         const slots = this.generateAllSlots()
         if (slots.length === 0) return []
@@ -1433,7 +1516,7 @@ class ScheduleBuilder {
         const days = this._groupSlotsByDay(slots)
 
         let bestSchedule = null
-        let bestScore = Infinity // lower is better: running balance violations * 1000 + end spread
+        let bestScore = Infinity // lower is better: 28day violations * 1000000 + running balance violations * 1000 + end spread
         let trialNum = 0
 
         const spacingFloor = SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR
@@ -1443,9 +1526,10 @@ class ScheduleBuilder {
             if (!schedule) schedule = this._constructSchedule(days, SCHEDULE_CONFIG.REDUCED_SPACING_FLOOR, offset, dayStab)
             if (schedule) {
                 this._repairViolations(schedule, spacingFloor)
+                const v28 = this._count28DayViolations(schedule, spacingFloor)
                 const rbv = this._runningBalanceViolations(schedule)
                 const endSpread = this._combinedBalanceSpread(schedule)
-                const score = rbv * 1000 + endSpread
+                const score = v28 * 1000000 + rbv * 1000 + endSpread
                 if (!bestSchedule || score < bestScore) {
                     bestScore = score
                     bestSchedule = schedule
@@ -1459,10 +1543,12 @@ class ScheduleBuilder {
         tryConstruction(0, false)
 
         if (bestScore > 0) {
-            for (let offset = 1; offset < REQUIRED_UNIQUE_GROUPS; offset++) {
+            const maxOffsets = Math.min(this.LESSON_GROUPS.length, Math.floor(SCHEDULE_CONFIG.TOTAL_TRIALS / 2))
+            for (let offset = 1; offset < maxOffsets; offset++) {
                 tryConstruction(offset, true)
                 tryConstruction(offset, false)
                 if (bestScore <= 1) break
+                if (bestScore <= 1001 && offset >= 3) break
             }
         }
 

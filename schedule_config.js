@@ -3,9 +3,9 @@
  * Single source of truth — change values here and they propagate everywhere.
  */
 
-const _DAY1 = Object.freeze([1, 4, 7, 8])
-const _DAY2 = Object.freeze([1, 2, 3, 7, 8])
-const _GROUP_COUNT = 22
+const _DAY1 = Object.freeze([1, 3, 4, 7])
+const _DAY2 = Object.freeze([1, 3, 4, 7, 8, 9])
+const _GROUP_COUNT = 24
 const _MAX_PERIODS = Math.max(_DAY1.length, _DAY2.length)
 const _ALL_PERIODS = Object.freeze([...new Set([..._DAY1, ..._DAY2])].sort((a, b) => a - b))
 

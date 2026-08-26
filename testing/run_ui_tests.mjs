@@ -10,6 +10,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const configCode = readFileSync(join(__dirname, '..', 'schedule_config.js'), 'utf8');
 const schedulerCode = readFileSync(join(__dirname, '..', 'scheduler.js'), 'utf8');
 const uiCode = readFileSync(join(__dirname, '..', 'ui_logic.js'), 'utf8');
 
@@ -19,13 +20,15 @@ const uiCode = readFileSync(join(__dirname, '..', 'ui_logic.js'), 'utf8');
  */
 function loadUI() {
     const mockDocument = { addEventListener: () => {} };
+    const mockWindow = { matchMedia: () => ({ matches: false, addEventListener: () => {} }) };
+    const mockNavigator = { maxTouchPoints: 0 };
     // Replace 'const ui =' with 'var ui =' so it doesn't clash with strict mode
     const patchedUiCode = uiCode.replace('const ui = {', 'var ui = {');
-    const fn = new Function('document',
-        schedulerCode + '\n' + patchedUiCode +
+    const fn = new Function('document', 'window', 'navigator',
+        configCode + '\n' + schedulerCode + '\n' + patchedUiCode +
         '\nreturn { parseCSVToSchedule, parseScheduleLine, computeWeeksFromEndDate, ScheduleEntry, ui };'
     );
-    return fn(mockDocument);
+    return fn(mockDocument, mockWindow, mockNavigator);
 }
 
 const loaded = loadUI();
@@ -62,9 +65,9 @@ console.log('\n--- parseCSVToSchedule ---');
 // Test 1: Basic CSV with header
 {
     const csv = [
-        '"Date","Day Cycle","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group"',
-        '"Mon, Sep 1, 2025","1","Pd 1","Flutes","Pd 4","Clarinets","Pd 7","Trumpets","Pd 8","Trombones",""',
-        '"Tue, Sep 2, 2025","2","Pd 1","Saxophones","Pd 2","Percussion","Pd 3","Violins","Pd 7","Cellos","Pd 8","Basses"',
+        '"Date","Day Cycle","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group"',
+        '"Mon, Sep 8, 2026","1","Pd 1","Flutes","Pd 3","Clarinets","Pd 4","Trumpets","Pd 7","Trombones","","","",""',
+        '"Tue, Sep 9, 2026","2","Pd 1","Saxophones","Pd 3","Percussion","Pd 4","Violins","Pd 7","Cellos","Pd 8","Basses","Pd 9","Piano"',
     ].join('\n');
     const result = parseCSVToSchedule(csv);
     assertEqual(result.length, 2, 'basic CSV: 2 entries parsed');
@@ -73,12 +76,12 @@ console.log('\n--- parseCSVToSchedule ---');
     assertEqual(result[0].lessons[0].period, 'Pd 1', 'basic CSV: day 1 first period');
     assertEqual(result[0].lessons[0].group, 'Flutes', 'basic CSV: day 1 first group');
     assertEqual(result[1].dayCycle, 2, 'basic CSV: day 2 cycle=2');
-    assertEqual(result[1].lessons.length, 5, 'basic CSV: day 2 has 5 lessons');
+    assertEqual(result[1].lessons.length, 6, 'basic CSV: day 2 has 6 lessons');
 }
 
 // Test 2: CSV without header
 {
-    const csv = '"Mon, Sep 1, 2025","1","Pd 1","Flutes","Pd 4","Clarinets","Pd 7","Trumpets","Pd 8","Trombones"';
+    const csv = '"Mon, Sep 8, 2026","1","Pd 1","Flutes","Pd 3","Clarinets","Pd 4","Trumpets","Pd 7","Trombones"';
     const result = parseCSVToSchedule(csv);
     assertEqual(result.length, 1, 'no header: 1 entry parsed');
     assertEqual(result[0].lessons.length, 4, 'no header: 4 lessons');
@@ -100,10 +103,10 @@ console.log('\n--- parseCSVToSchedule ---');
 // Test 5: CSV with blank lines (cycle spacers from export)
 {
     const csv = [
-        '"Date","Day Cycle","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group"',
-        '"Mon, Sep 1, 2025","1","Pd 1","Flutes","Pd 4","Clarinets","Pd 7","Trumpets","Pd 8","Trombones"',
+        '"Date","Day Cycle","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group"',
+        '"Mon, Sep 8, 2026","1","Pd 1","Flutes","Pd 3","Clarinets","Pd 4","Trumpets","Pd 7","Trombones"',
         '',
-        '"Tue, Sep 30, 2025","2","Pd 1","Saxophones","Pd 2","Percussion","Pd 3","Violins","Pd 7","Cellos","Pd 8","Basses"',
+        '"Tue, Sep 30, 2026","2","Pd 1","Saxophones","Pd 3","Percussion","Pd 4","Violins","Pd 7","Cellos","Pd 8","Basses","Pd 9","Piano"',
     ].join('\n');
     const result = parseCSVToSchedule(csv);
     assertEqual(result.length, 2, 'blank lines: skipped, 2 entries parsed');
@@ -114,7 +117,7 @@ console.log('\n--- parseCSVToSchedule ---');
     const csv = [
         '"Date","Day Cycle","Period","Group"',
         '"NOT-A-DATE","1","Pd 1","Flutes"',
-        '"Mon, Sep 1, 2025","1","Pd 4","Clarinets"',
+        '"Mon, Sep 8, 2026","1","Pd 4","Clarinets"',
     ].join('\n');
     const result = parseCSVToSchedule(csv);
     assertEqual(result.length, 1, 'malformed date: skipped, 1 entry parsed');
@@ -124,7 +127,7 @@ console.log('\n--- parseCSVToSchedule ---');
 // Test 7: Row with no period columns is skipped
 {
     const csv = [
-        '"Mon, Sep 1, 2025","1","no-periods-here"',
+        '"Mon, Sep 8, 2026","1","no-periods-here"',
     ].join('\n');
     const result = parseCSVToSchedule(csv);
     assertEqual(result.length, 0, 'no period columns: row skipped');
@@ -132,7 +135,7 @@ console.log('\n--- parseCSVToSchedule ---');
 
 // Test 8: Tab-separated (spreadsheet paste) format
 {
-    const csv = "Mon, Sep 1, 2025\t1\tPd 1\tFlutes\tPd 4\tClarinets";
+    const csv = "Mon, Sep 8, 2026\t1\tPd 1\tFlutes\tPd 3\tClarinets";
     const result = parseCSVToSchedule(csv);
     assertEqual(result.length, 1, 'TSV format: 1 entry parsed');
     assertEqual(result[0].lessons.length, 2, 'TSV format: 2 lessons');
@@ -143,19 +146,19 @@ console.log('\n--- parseCSVToSchedule ---');
 {
     // Build a small schedule
     const { ScheduleBuilder } = new Function(
-        schedulerCode + '\nreturn { ScheduleBuilder };'
+        configCode + '\n' + schedulerCode + '\nreturn { ScheduleBuilder };'
     )();
-    const builder = new ScheduleBuilder('2025-09-01', 1, [], 4);
+    const builder = new ScheduleBuilder('2026-09-08', 1, [], 4);
     const schedule = builder.buildSchedule();
 
     // Simulate exportTableToCSV logic: build CSV string from schedule entries
-    const header = '"Date","Day Cycle","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group"';
+    const header = '"Date","Day Cycle","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group","Period","Group"';
     const rows = schedule.map(entry => {
         const dateStr = entry.date.toLocaleDateString(undefined, {
             weekday: 'short', year: 'numeric', month: 'short', day: 'numeric'
         });
         let row = `"${dateStr}","${entry.dayCycle}"`;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 6; i++) {
             if (entry.lessons[i]) {
                 row += `,"${entry.lessons[i].period}","${entry.lessons[i].group}"`;
             } else {
@@ -200,16 +203,16 @@ function testComputeWeeks(startVal, endVal, expectedWeeks, desc) {
     assertEqual(ui.weeksInput.value, expectedWeeks, desc);
 }
 
-testComputeWeeks('2025-09-01', '2025-09-08', 1, 'exactly 1 week');
-testComputeWeeks('2025-09-01', '2025-09-15', 2, 'exactly 2 weeks');
-testComputeWeeks('2025-09-01', '2025-09-10', 2, '9 days = ceil to 2 weeks');
-// Sep 1 to Dec 1 = 91 days = 13 weeks exactly, but DST fall-back adds an hour → ceil = 14
-testComputeWeeks('2025-09-01', '2025-12-01', 14, '91 days + DST = ceil to 14 weeks');
-testComputeWeeks('2025-09-01', '2025-09-01', '', 'same date: no weeks computed');
-testComputeWeeks('2025-09-10', '2025-09-01', '', 'end before start: no weeks computed');
-testComputeWeeks('', '2025-09-10', '', 'missing start: no weeks computed');
-testComputeWeeks('2025-09-01', '', '', 'missing end: no weeks computed');
-testComputeWeeks('2025-01-01', '2026-06-01', 52, 'clamped to 52 weeks max');
+testComputeWeeks('2026-09-08', '2026-09-15', 1, 'exactly 1 week');
+testComputeWeeks('2026-09-08', '2026-09-22', 2, 'exactly 2 weeks');
+testComputeWeeks('2026-09-08', '2026-09-17', 2, '9 days = ceil to 2 weeks');
+// Sep 8 to Dec 8 = 91 days = 13 weeks exactly, but DST fall-back adds an hour → ceil = 14
+testComputeWeeks('2026-09-08', '2026-12-08', 14, '91 days + DST = ceil to 14 weeks');
+testComputeWeeks('2026-09-08', '2026-09-08', '', 'same date: no weeks computed');
+testComputeWeeks('2026-09-17', '2026-09-08', '', 'end before start: no weeks computed');
+testComputeWeeks('', '2026-09-17', '', 'missing start: no weeks computed');
+testComputeWeeks('2026-09-08', '', '', 'missing end: no weeks computed');
+testComputeWeeks('2026-01-01', '2027-06-01', 52, 'clamped to 52 weeks max');
 
 // ============================================================
 // Summary

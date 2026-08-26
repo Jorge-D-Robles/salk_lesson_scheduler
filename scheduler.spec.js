@@ -308,7 +308,8 @@ describe("ScheduleBuilder", () => {
             "Oboes",
             "Bassoons",
             "Saxes",
-            "Trumpets",
+            "Trumpets1",
+            "Trumpets2",
             "Horns",
             "Trombones",
             "Euphoniums",
@@ -325,12 +326,13 @@ describe("ScheduleBuilder", () => {
             "Ukuleles",
             "Recorders",
             "Vocals",
+            "Harp",
         ]
 
         const createFullBaseHistory = (startDate) => {
             const baseHistory = []
             const date = new Date(`${startDate}T12:00:00Z`)
-            const periods = [1, 4, 7, 8, 2, 3]
+            const periods = [1, 3, 4, 7, 8, 9]
             let currentPeriodIndex = 0
             FULL_GROUP_LIST.forEach((group) => {
                 const dayOfWeek = date.getDay()
@@ -350,7 +352,7 @@ describe("ScheduleBuilder", () => {
             return baseHistory
         }
 
-        it("should correctly identify the 22 groups from a history with duplicates", () => {
+        it("should correctly identify the 24 groups from a history with duplicates", () => {
             const historyData = createFullBaseHistory("2025-08-01")
             historyData.push({ date: "2025-08-04", period: 5, group: "Flutes" })
             const scheduleBuilder = new ScheduleBuilder(

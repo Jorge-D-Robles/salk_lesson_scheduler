@@ -119,12 +119,31 @@ This document tracks algorithm approaches tried, why they failed or succeeded, a
 **Result**: Worse violations (161 vs 137). The solver's slot indices are in day+period order, so comparing with cycle-order positions is meaningless (different coordinate systems).
 **Lesson**: prevPositions must use the same coordinate system as the solver's slot indexing (day+period order), not the cycle analysis ordering.
 
+### 19. 2026–2027 School Setup Adaptations (Successful)
+**What**: Updated algorithm for 24 student groups (A–X), Day 1 periods `[1, 3, 4, 7]` (4 slots), Day 2 periods `[1, 3, 4, 7, 8, 9]` (6 slots).
+**Key Discoveries & Fixes**:
+1. **Week-Level MU Budget (`maxWeekMU`)**:
+   - On 26-slot weeks (Day 2 start), 3 Day 2 days allowed 1 MU each ($3 \text{ MU total}$), leaving only 23 slots for real groups instead of 24.
+   - Fix: Added `maxWeekMU = Math.max(0, numSlots - realCandidates)` in `_solveWeekAssignment`, capping MU at strictly 2 per 26-slot week (and 0 for 24-slot weeks) so all 24 groups are scheduled every week.
+2. **Day 1 Period Pressure Relief (`getDay1Pressure`)**:
+   - Day 2 exclusive periods (8 and 9) are assigned preferentially to groups that used more Day 1 periods (`[1, 3, 4, 7]`) in the last 28 days. This relieves congestion on shared periods.
+3. **Multi-Trial Scoring Hierarchy**:
+   - Trial scoring must prioritize 28-day spacing as Constraint #1: `bestScore = v28 * 1000000 + rbv * 1000 + endSpread`.
+4. **Safe Hill-Climbing Post-Processing Repairs**:
+   - All cross-day and within-week swaps in `_repairRunningBalance` strictly verify `newViolations < currentViolations` across the entire schedule before committing.
+
 ## Structural Cycle Violation Analysis
 - With 22 groups and alternating D1/D2 day types, zero cycle violations is **mathematically impossible**
 - D1 days have 4 slots, D2 days have 5. Week types alternate: (4,5,4,5,4)=22 and (5,4,5,4,5)=23
 - When week type changes, groups on affected days shift by ±1 position in the flat sequence
 - A -1 shift means the gap between consecutive appearances is 21 instead of 22, missing 1 group → violation
 - ~80-100 violations per 16-week schedule are structural; remaining ~7-30 are fixable with ordering
+
+## Structural Cycle Violation Analysis (2026–2027)
+- 24 groups across alternating Day 1 (4 slots) and Day 2 (6 slots).
+- Day 1 start weeks produce 24 slots (exact 24 groups $\rightarrow 0$ MU).
+- Day 2 start weeks produce 26 slots (24 groups $+ 2$ MU $\rightarrow 2$ MU on two distinct Day 2 days).
+- 28-day calendar spacing floor is strictly maintained across all 24 groups and all 6 periods without exceptions.
 
 ## Rules for Future Attempts
 1. Never sort lessons by period within `_constructSchedule` — display sorting is UI-layer only
@@ -136,3 +155,4 @@ This document tracks algorithm approaches tried, why they failed or succeeded, a
 7. Don't try to fix bad data with clever algorithms — fix the data instead
 8. Day-stability must use dual-trial approach (with/without) to handle heavy-absence schedules
 9. Don't combine different metrics into a single sort score — use separate priority levels
+10. On 26-slot weeks, strictly cap total MU across the week to `maxWeekMU = Math.max(0, numSlots - realCandidates)` to prevent starving real student groups of weekly lessons.

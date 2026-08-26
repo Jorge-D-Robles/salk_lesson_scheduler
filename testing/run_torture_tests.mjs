@@ -11,50 +11,46 @@ import { loadScheduler, runChecks, analyzeCycleViolations, weekdaysInRange, allM
 const { ScheduleBuilder, SCHEDULE_CONFIG } = loadScheduler();
 
 const tortureTests = [
-    { desc: 'Scattered days off', start: '2025-09-01', daysOff: ['2025-09-03', '2025-09-10', '2025-09-17', '2025-09-24', '2025-10-01', '2025-10-08', '2025-10-15', '2025-10-22', '2025-10-29', '2025-11-05', '2025-11-12', '2025-11-19'], weeks: 16 },
-    { desc: 'Mon+Fri off 12wk', start: '2025-09-01', daysOff: [...allMondaysInRange('2025-09-01', '2025-11-21'), ...allFridaysInRange('2025-09-01', '2025-11-21')], weeks: 16 },
-    { desc: 'Two 3-day breaks', start: '2025-09-01', daysOff: ['2025-09-10', '2025-09-11', '2025-09-12', '2025-09-22', '2025-09-23', '2025-09-24'], weeks: 16 },
-    { desc: 'Three week-long breaks', start: '2025-09-01', daysOff: [...weekdaysInRange('2025-09-22', '2025-09-26'), ...weekdaysInRange('2025-10-27', '2025-10-31'), ...weekdaysInRange('2025-12-22', '2025-12-26')], weeks: 20 },
-    { desc: '1 day available week', start: '2025-09-01', daysOff: ['2025-09-08', '2025-09-09', '2025-09-11', '2025-09-12'], weeks: 16 },
-    { desc: 'Two 2-day weeks', start: '2025-09-01', daysOff: ['2025-09-08', '2025-09-09', '2025-09-10', '2025-09-17', '2025-09-18', '2025-09-19'], weeks: 16 },
-    { desc: 'Alt 2/5-day weeks', start: '2025-09-01', daysOff: [...weekdaysInRange('2025-09-08', '2025-09-10'), ...weekdaysInRange('2025-09-22', '2025-09-24'), ...weekdaysInRange('2025-10-06', '2025-10-08'), ...weekdaysInRange('2025-10-20', '2025-10-22')], weeks: 16 },
-    { desc: 'Full semester', start: '2025-09-02', daysOff: ['2025-10-13', '2025-11-04', '2025-11-11', '2025-11-26', '2025-11-27', '2025-11-28', ...weekdaysInRange('2025-12-22', '2026-01-02'), '2026-01-19'], weeks: 22 },
-    { desc: 'Spring semester', start: '2026-01-05', daysOff: ['2026-02-16', ...weekdaysInRange('2026-02-16', '2026-02-20'), ...weekdaysInRange('2026-04-06', '2026-04-10'), '2026-05-25'], weeks: 24 },
-    { desc: 'Every Mon off', start: '2025-09-01', daysOff: allMondaysInRange('2025-09-01', '2025-12-19'), weeks: 16 },
-    { desc: 'Every Fri off', start: '2025-09-01', daysOff: allFridaysInRange('2025-09-01', '2025-12-19'), weeks: 16 },
-    { desc: '30wk clean', start: '2025-09-01', daysOff: [], weeks: 30 },
-    { desc: '40wk holidays', start: '2025-09-01', daysOff: ['2025-10-13', '2025-11-11', '2025-11-27', '2025-11-28', ...weekdaysInRange('2025-12-22', '2026-01-02'), '2026-01-19', '2026-02-16', ...weekdaysInRange('2026-02-16', '2026-02-20'), ...weekdaysInRange('2026-04-06', '2026-04-10'), '2026-05-25'], weeks: 40 },
-    { desc: '4x 3-day wks', start: '2025-09-01', daysOff: ['2025-09-08', '2025-09-12', '2025-09-15', '2025-09-19', '2025-09-22', '2025-09-26', '2025-09-29', '2025-10-03'], weeks: 16 },
-    { desc: '3x 2-day wks', start: '2025-09-01', daysOff: ['2025-09-08', '2025-09-09', '2025-09-10', '2025-09-15', '2025-09-16', '2025-09-17', '2025-09-22', '2025-09-23', '2025-09-24'], weeks: 16 },
-    { desc: 'Start Thu Fri off', start: '2025-09-04', daysOff: ['2025-09-05'], weeks: 16 },
-    { desc: 'Start Wed rest off', start: '2025-09-03', daysOff: ['2025-09-04', '2025-09-05'], weeks: 16 },
-    { desc: '28-day boundary', start: '2025-09-01', daysOff: weekdaysInRange('2025-09-29', '2025-10-03'), weeks: 16 },
-    { desc: 'Two 28-day boundaries', start: '2025-09-01', daysOff: [...weekdaysInRange('2025-09-29', '2025-10-03'), ...weekdaysInRange('2025-10-27', '2025-10-31')], weeks: 16 },
-    { desc: 'Dense early gaps', start: '2025-09-01', daysOff: ['2025-09-02', '2025-09-03', '2025-09-04', '2025-09-05', '2025-09-08', '2025-09-09', '2025-09-10'], weeks: 16 },
-    { desc: 'Dense late gaps', start: '2025-09-01', daysOff: ['2025-11-24', '2025-11-25', '2025-11-26', '2025-11-27', '2025-11-28', '2025-12-01', '2025-12-02', '2025-12-03'], weeks: 16 },
-    // Real school calendar: Levittown Public Schools 2025-2026 (approved 2/5/25)
-    { desc: 'Levittown 2025-2026', start: '2025-09-02', daysOff: [
-        '2025-09-23', '2025-09-24', '2025-10-02', '2025-10-13', '2025-10-20',
-        '2025-11-04', '2025-11-11', '2025-11-27', '2025-11-28',
-        '2025-12-24', '2025-12-25', '2025-12-26', '2025-12-29', '2025-12-30', '2025-12-31',
-        '2026-01-01', '2026-01-02', '2026-01-19',
-        '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20',
-        '2026-03-20',
-        '2026-04-02', '2026-04-03', '2026-04-06', '2026-04-07', '2026-04-08', '2026-04-09', '2026-04-10',
-        '2026-05-25', '2026-05-27', '2026-06-19',
-    ], weeks: 43 },
+    { desc: 'Scattered days off', start: '2026-09-14', daysOff: ['2026-09-16', '2026-09-23', '2026-09-30', '2026-10-07', '2026-10-14', '2026-10-21', '2026-10-28', '2026-11-04', '2026-11-18', '2026-12-02', '2026-12-09', '2026-12-16'], weeks: 16 },
+    { desc: 'Mon+Fri off 12wk', start: '2026-09-14', daysOff: [...allMondaysInRange('2026-09-14', '2026-11-20'), ...allFridaysInRange('2026-09-14', '2026-11-20')], weeks: 16 },
+    { desc: 'Two 3-day breaks', start: '2026-09-14', daysOff: ['2026-09-23', '2026-09-24', '2026-09-25', '2026-10-07', '2026-10-08', '2026-10-09'], weeks: 16 },
+    { desc: 'Three week-long breaks', start: '2026-09-14', daysOff: [...weekdaysInRange('2026-09-21', '2026-09-25'), ...weekdaysInRange('2026-10-26', '2026-10-30'), ...weekdaysInRange('2026-12-21', '2026-12-25')], weeks: 20 },
+    { desc: '1 day available week', start: '2026-09-14', daysOff: ['2026-09-21', '2026-09-22', '2026-09-24', '2026-09-25'], weeks: 16 },
+    { desc: 'Two 2-day weeks', start: '2026-09-14', daysOff: ['2026-09-21', '2026-09-22', '2026-09-23', '2026-10-05', '2026-10-06', '2026-10-07'], weeks: 16 },
+    { desc: 'Alt 2/5-day weeks', start: '2026-09-14', daysOff: [...weekdaysInRange('2026-09-21', '2026-09-23'), ...weekdaysInRange('2026-10-05', '2026-10-07'), ...weekdaysInRange('2026-10-19', '2026-10-21'), ...weekdaysInRange('2026-11-02', '2026-11-04')], weeks: 16 },
+    { desc: 'Full semester', start: '2026-09-08', daysOff: ['2026-09-21', '2026-10-12', '2026-11-03', '2026-11-11', '2026-11-26', '2026-11-27', ...weekdaysInRange('2026-12-24', '2027-01-01'), '2027-01-18'], weeks: 22 },
+    { desc: 'Spring semester', start: '2027-01-04', daysOff: ['2027-01-18', ...weekdaysInRange('2027-02-15', '2027-02-19'), ...weekdaysInRange('2027-03-29', '2027-04-02'), '2027-05-31'], weeks: 24 },
+    { desc: 'Every Mon off', start: '2026-09-14', daysOff: allMondaysInRange('2026-09-14', '2026-12-25'), weeks: 16 },
+    { desc: 'Every Fri off', start: '2026-09-14', daysOff: allFridaysInRange('2026-09-14', '2026-12-25'), weeks: 16 },
+    { desc: '30wk clean', start: '2026-09-14', daysOff: [], weeks: 30 },
+    { desc: '40wk holidays', start: '2026-09-08', daysOff: ['2026-09-21', '2026-10-12', '2026-11-03', '2026-11-11', '2026-11-26', '2026-11-27', ...weekdaysInRange('2026-12-24', '2027-01-01'), '2027-01-18', ...weekdaysInRange('2027-02-15', '2027-02-19'), ...weekdaysInRange('2027-03-29', '2027-04-02'), '2027-05-31', '2027-06-18'], weeks: 40 },
+    { desc: '4x 3-day wks', start: '2026-09-14', daysOff: ['2026-09-14', '2026-09-18', '2026-09-21', '2026-09-25', '2026-09-28', '2026-10-02', '2026-10-05', '2026-10-09'], weeks: 16 },
+    { desc: '3x 2-day wks', start: '2026-09-14', daysOff: ['2026-09-14', '2026-09-15', '2026-09-16', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-28', '2026-09-29', '2026-09-30'], weeks: 16 },
+    { desc: 'Start Thu Fri off', start: '2026-09-03', daysOff: ['2026-09-04'], weeks: 16 },
+    { desc: 'Start Wed rest off', start: '2026-09-02', daysOff: ['2026-09-03', '2026-09-04'], weeks: 16 },
+    { desc: '28-day boundary', start: '2026-09-14', daysOff: weekdaysInRange('2026-10-12', '2026-10-16'), weeks: 16 },
+    { desc: 'Two 28-day boundaries', start: '2026-09-14', daysOff: [...weekdaysInRange('2026-10-12', '2026-10-16'), ...weekdaysInRange('2026-11-09', '2026-11-13')], weeks: 16 },
+    { desc: 'Dense early gaps', start: '2026-09-14', daysOff: ['2026-09-15', '2026-09-16', '2026-09-17', '2026-09-18', '2026-09-21', '2026-09-22', '2026-09-23'], weeks: 16 },
+    { desc: 'Dense late gaps', start: '2026-09-14', daysOff: ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27', '2026-11-30', '2026-12-01', '2026-12-02'], weeks: 16 },
+    // Real school calendar: Levittown Public Schools 2026-2027
+    { desc: 'Levittown 2026-2027', start: '2026-09-08', daysOff: [
+        '2026-09-21', '2026-10-12', '2026-11-03', '2026-11-11', '2026-11-26', '2026-11-27',
+        ...weekdaysInRange('2026-12-24', '2027-01-01'),
+        '2027-01-18',
+        ...weekdaysInRange('2027-02-15', '2027-02-19'),
+        ...weekdaysInRange('2027-03-29', '2027-04-02'),
+        '2027-05-31', '2027-06-18',
+    ], weeks: 40 },
 ];
 
 // --- Realistic Levittown scenarios: school calendar + personal absences ---
 const levittownBase = [
-    '2025-09-23', '2025-09-24', '2025-10-02', '2025-10-13', '2025-10-20',
-    '2025-11-04', '2025-11-11', '2025-11-27', '2025-11-28',
-    '2025-12-24', '2025-12-25', '2025-12-26', '2025-12-29', '2025-12-30', '2025-12-31',
-    '2026-01-01', '2026-01-02', '2026-01-19',
-    '2026-02-16', '2026-02-17', '2026-02-18', '2026-02-19', '2026-02-20',
-    '2026-03-20',
-    '2026-04-02', '2026-04-03', '2026-04-06', '2026-04-07', '2026-04-08', '2026-04-09', '2026-04-10',
-    '2026-05-25', '2026-05-27', '2026-06-19',
+    '2026-09-21', '2026-10-12', '2026-11-03', '2026-11-11', '2026-11-26', '2026-11-27',
+    ...weekdaysInRange('2026-12-24', '2027-01-01'),
+    '2027-01-18',
+    ...weekdaysInRange('2027-02-15', '2027-02-19'),
+    ...weekdaysInRange('2027-03-29', '2027-04-02'),
+    '2027-05-31', '2027-06-18',
 ];
 
 const realisticTests = [
@@ -147,7 +143,7 @@ for (const t of tortureTests) {
 console.log('\n--- Levittown realistic scenarios ---');
 for (const t of realisticTests) {
     for (const cycle of [1, 2]) {
-        runTest(t.desc, '2025-09-02', cycle, [...levittownBase, ...t.extra], 43);
+        runTest(t.desc, '2026-09-08', cycle, [...levittownBase, ...t.extra], 40);
     }
 }
 
@@ -159,7 +155,7 @@ function runChunkedTest(desc, startCycle, daysOff) {
     const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 
     let combined = [];
-    let chunkStart = '2025-09-02';
+    let chunkStart = '2026-09-08';
     let chunkCycle = startCycle;
     // Track cumulative lesson counts across all chunks for accurate balance
     const cumulativeCounts = {};
@@ -167,8 +163,8 @@ function runChunkedTest(desc, startCycle, daysOff) {
 
     while (true) {
         const startDate = new Date(chunkStart + 'T00:00:00');
-        const origEnd = new Date('2025-09-02T00:00:00');
-        origEnd.setDate(origEnd.getDate() + 43 * 7);
+        const origEnd = new Date('2026-09-08T00:00:00');
+        origEnd.setDate(origEnd.getDate() + 40 * 7);
         const weeksLeft = Math.ceil((origEnd - startDate) / (7 * SCHEDULE_CONFIG.ONE_DAY_MS));
         const thisChunkWeeks = Math.min(8, weeksLeft);
         if (thisChunkWeeks <= 0) break;
