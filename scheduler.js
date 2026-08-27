@@ -321,28 +321,33 @@ class ScheduleBuilder {
      * recur within 7 days.
      * @private
      */
-    _solveWeekAssignment(weekDays, candidateGroups, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts) {
+    _solveWeekAssignment(weekDays, candidateGroups, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts, muPeriodCounts) {
         const oneDayMs = SCHEDULE_CONFIG.ONE_DAY_MS
-
-        // Build flat slot list from all days in the week
+        const numDays = weekDays.length
         const slots = []
-        for (let dayIdx = 0; dayIdx < weekDays.length; dayIdx++) {
-            const day = weekDays[dayIdx]
-            for (const period of day.periods) {
-                slots.push({ dayIdx, date: day.date, period })
+        for (let d = 0; d < numDays; d++) {
+            for (const p of weekDays[d].periods) {
+                slots.push({ date: weekDays[d].date, period: p, dayIdx: d })
             }
         }
-
         const numSlots = slots.length
-        const numDays = weekDays.length
 
-        // Quick feasibility check: enough candidates + MU to fill all slots?
         const realCandidates = candidateGroups.filter(g => g !== SCHEDULE_CONFIG.MU_TOKEN).length
         if (realCandidates + numDays < numSlots) return null
 
         // Pre-compute candidate index for fast lookup
         const candidateIdx = new Map()
         candidateGroups.forEach((g, i) => candidateIdx.set(g, i))
+
+        // Target MU periods: select DAY2 periods with lowest accumulated MU counts
+        const needMUCount = Math.max(0, numSlots - realCandidates)
+        const targetMUPers = new Set()
+        if (needMUCount > 0 && muPeriodCounts) {
+            const sorted = [...SCHEDULE_CONFIG.DAY2_PERIODS].sort((p1, p2) => (muPeriodCounts[p1] || 0) - (muPeriodCounts[p2] || 0))
+            for (let i = 0; i < needMUCount && i < sorted.length; i++) {
+                targetMUPers.add(sorted[i])
+            }
+        }
 
         // Pre-compute valid groups per slot (28-day constraint against prior weeks)
         const validGroupsPerSlot = slots.map((slot, slotIndex) => {
@@ -364,8 +369,8 @@ class ScheduleBuilder {
             // provided (chunked/history mode), prefer underused groups first
             // to prevent balance accumulation across chunks. Otherwise use
             // day-stability and position-stability to preserve cycle ordering.
-            // MU always last.
             const slotDow = slot.date.getDay()
+            const isTargetMU = targetMUPers.has(slot.period)
             const isLatePeriod = slot.period === 8 || slot.period === 9
             const needsMU = numSlots > realCandidates
 
@@ -383,7 +388,7 @@ class ScheduleBuilder {
             }
 
             valid.sort((a, b) => {
-                if (needsMU && isLatePeriod) {
+                if (needsMU && isTargetMU) {
                     if (a === SCHEDULE_CONFIG.MU_TOKEN) return -1
                     if (b === SCHEDULE_CONFIG.MU_TOKEN) return 1
                 } else {
@@ -607,6 +612,10 @@ class ScheduleBuilder {
         const runningCounts = {}
         for (const g of this.LESSON_GROUPS) runningCounts[g] = 0
 
+        // Track running MU period counts to distribute MU across periods
+        const muPeriodCounts = {}
+        for (const p of SCHEDULE_CONFIG.DAY2_PERIODS) muPeriodCounts[p] = 0
+
         const weekGroups = this._groupDaysByWeek(days)
 
         // Track each group's position in the previous week's flat sequence
@@ -659,7 +668,7 @@ class ScheduleBuilder {
             let result = null
             for (const candidates of candidateSets) {
                 result = this._solveWeekAssignment(
-                    weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts
+                    weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, runningCounts, muPeriodCounts
                 )
                 if (result) break
             }
@@ -668,20 +677,45 @@ class ScheduleBuilder {
             if (!result) {
                 for (const candidates of candidateSets) {
                     result = this._solveWeekAssignment(
-                        weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek
+                        weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, prevDayOfWeek, null, muPeriodCounts
                     )
                     if (result) break
+                }
+            }
+
+            // If day-stability constrained the search, try without day-stability at full calendar floor
+            if (!result && prevDayOfWeek) {
+                for (const candidates of candidateSets) {
+                    result = this._solveWeekAssignment(
+                        weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, null, runningCounts, muPeriodCounts
+                    )
+                    if (result) break
+                }
+                if (!result) {
+                    for (const candidates of candidateSets) {
+                        result = this._solveWeekAssignment(
+                            weekDays, candidates, periodAssignments, calendarFloor, prevPositions, balanceCounts, null, null, muPeriodCounts
+                        )
+                        if (result) break
+                    }
                 }
             }
 
             // Tier 4: reduced floor (21-day minimum spacing)
             if (!result) {
                 result = this._solveWeekAssignment(
-                    weekDays, [...allAvailable, SCHEDULE_CONFIG.MU_TOKEN], periodAssignments, SCHEDULE_CONFIG.REDUCED_SPACING_FLOOR, prevPositions, balanceCounts, prevDayOfWeek
+                    weekDays, [...allAvailable, SCHEDULE_CONFIG.MU_TOKEN], periodAssignments, SCHEDULE_CONFIG.REDUCED_SPACING_FLOOR, prevPositions, balanceCounts, null, null, muPeriodCounts
                 )
             }
 
             if (!result) return null
+
+            // Update MU period counts from weekly assignment result
+            for (const { period, group } of result) {
+                if (group === SCHEDULE_CONFIG.MU_TOKEN) {
+                    muPeriodCounts[period] = (muPeriodCounts[period] || 0) + 1
+                }
+            }
 
             // Group results by day
             const dayResults = weekDays.map(() => [])
@@ -1438,8 +1472,8 @@ class ScheduleBuilder {
             if (maxC - minC > 1) {
                 for (let d = schedule.length - 1; d >= 0 && maxC - minC > 1; d--) {
                     const day = schedule[d]
-                    // Only if this day doesn't already have MU
-                    if (day.lessons.some(l => l.group === SCHEDULE_CONFIG.MU_TOKEN)) continue
+                    // Only on Day 2 days and only if this day doesn't already have MU
+                    if (day.dayCycle % 2 !== 0 || day.lessons.some(l => l.group === SCHEDULE_CONFIG.MU_TOKEN)) continue
 
                     for (let li = 0; li < day.lessons.length && maxC - minC > 1; li++) {
                         const lesson = day.lessons[li]

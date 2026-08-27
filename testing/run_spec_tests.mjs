@@ -41,5 +41,21 @@ for (const t of tests) {
     else pass++;
     console.log(`${status} ${t.desc}${issues.length > 0 ? ': ' + issues.join(', ') : ''}`);
 }
+
+// Dedicated MU distribution check
+const muBuilder = new ScheduleBuilder("2026-09-08", 2, [], 16);
+const muSchedule = muBuilder.buildSchedule();
+const muPeriods = new Set();
+muSchedule.forEach(d => d.lessons.forEach(l => {
+    if (l.group === 'MU') muPeriods.add(parseInt(l.period.replace('Pd ', ''), 10));
+}));
+if (muPeriods.size >= 4) {
+    pass++;
+    console.log(`PASS MU spread across periods (${muPeriods.size} distinct periods)`);
+} else {
+    fail++;
+    console.log(`FAIL MU spread across periods (only ${muPeriods.size} distinct periods)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

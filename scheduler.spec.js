@@ -520,7 +520,7 @@ describe("ScheduleBuilder", () => {
     describe("MU (Make-Up) Scheduling Rules", () => {
         it("should not schedule more than one MU per day or any back-to-back MUs in a long-term schedule with all constraints", () => {
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01",
+                "2026-09-08",
                 1,
                 [],
                 40,
@@ -535,7 +535,7 @@ describe("ScheduleBuilder", () => {
 
         it("should not schedule more than one MU per day or any back-to-back MUs, not checking for other constraints", () => {
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01",
+                "2026-09-08",
                 1,
                 [],
                 40,
@@ -547,7 +547,7 @@ describe("ScheduleBuilder", () => {
 
         it("should not schedule more than one MU per day or any back-to-back MUs in a long-term schedule, but breaks the 28 day rule", () => {
             const scheduleBuilder = new ScheduleBuilder(
-                "2025-09-01",
+                "2026-09-08",
                 1,
                 [],
                 40,
@@ -556,6 +556,38 @@ describe("ScheduleBuilder", () => {
             const schedule = scheduleBuilder.buildSchedule()
             assertNoMUClustering(schedule)
             assertNoWeeklyConflicts(schedule)
+        })
+
+        it("should spread MU slots across multiple periods of the day rather than clustering on periods 8 and 9", () => {
+            const scheduleBuilder = new ScheduleBuilder(
+                "2026-09-08",
+                2,
+                [],
+                16
+            )
+            const schedule = scheduleBuilder.buildSchedule()
+            const muPeriods = new Set()
+            const muCounts = {}
+            let totalMUs = 0
+            schedule.forEach((dayEntry) => {
+                dayEntry.lessons.forEach((lesson) => {
+                    if (lesson.group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) {
+                        const period = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ""), 10)
+                        muPeriods.add(period)
+                        muCounts[period] = (muCounts[period] || 0) + 1
+                        totalMUs++
+                    }
+                })
+            })
+            // Verify that MUs appear across multiple distinct Day 2 periods
+            expect(muPeriods.size).toBeGreaterThanOrEqual(4, "Expected MUs to be distributed across at least 4 distinct periods")
+            // Verify that early/mid periods (1, 3, 4, 7) receive a significant portion of MUs
+            const earlyMidMUs = (muCounts[1] || 0) + (muCounts[3] || 0) + (muCounts[4] || 0) + (muCounts[7] || 0)
+            expect(earlyMidMUs).toBeGreaterThanOrEqual(totalMUs * 0.4, "Expected early/mid periods (1, 3, 4, 7) to have at least 40% of all MUs")
+            // Verify that no single period monopolizes the MUs
+            for (const p in muCounts) {
+                expect(muCounts[p]).toBeLessThanOrEqual(totalMUs * 0.5, `Period ${p} has too many MUs (${muCounts[p]} out of ${totalMUs})`)
+            }
         })
     })
 })

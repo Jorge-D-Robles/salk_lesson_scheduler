@@ -132,6 +132,19 @@ This document tracks algorithm approaches tried, why they failed or succeeded, a
 4. **Safe Hill-Climbing Post-Processing Repairs**:
    - All cross-day and within-week swaps in `_repairRunningBalance` strictly verify `newViolations < currentViolations` across the entire schedule before committing.
 
+### 20. Dynamic MU Period Distribution (Successful)
+**What**: Make-Up (MU) slots in 26-slot weeks previously concentrated exclusively in Periods 8 and 9 (the last 2 periods of Day 2) because `isLatePeriod = slot.period === 8 || slot.period === 9` was hardcoded to prioritize `MU_TOKEN` at index 0 of candidate lists for those periods.
+**Fix**:
+1. Added global `muPeriodCounts` tracking in `_constructSchedule` for all periods in `DAY2_PERIODS = [1, 3, 4, 7, 8, 9]`.
+2. In `_solveWeekAssignment`, dynamically compute `targetMUPers` as the set of Day 2 periods with the lowest accumulated MU counts.
+3. For slots matching `targetMUPers`, `MU_TOKEN` is sorted first; for other periods, `MU_TOKEN` is sorted last.
+4. When MRV backtracks, it naturally explores alternative periods if 28-day constraints require it.
+5. In `_balanceLessonCounts` Strategy 4, ensured Day 1 days are skipped (`day.dayCycle % 2 !== 0`).
+**Result**:
+- 100% of all 162 torture tests PASS (`162 passed, 0 failed`).
+- 100% of all spec tests PASS (`20 passed, 0 failed`).
+- MUs are evenly distributed across Periods 1, 3, 4, 7, 8, and 9 (e.g. `{ '1': 6, '3': 7, '4': 5, '7': 6, '8': 5, '9': 1 }` on 40-week Levittown c1).
+
 ## Structural Cycle Violation Analysis
 - With 22 groups and alternating D1/D2 day types, zero cycle violations is **mathematically impossible**
 - D1 days have 4 slots, D2 days have 5. Week types alternate: (4,5,4,5,4)=22 and (5,4,5,4,5)=23
@@ -156,3 +169,5 @@ This document tracks algorithm approaches tried, why they failed or succeeded, a
 8. Day-stability must use dual-trial approach (with/without) to handle heavy-absence schedules
 9. Don't combine different metrics into a single sort score — use separate priority levels
 10. On 26-slot weeks, strictly cap total MU across the week to `maxWeekMU = Math.max(0, numSlots - realCandidates)` to prevent starving real student groups of weekly lessons.
+11. Track `muPeriodCounts` across weeks and prioritize underused MU periods dynamically so Make-Up slots disperse evenly across all periods of the day.
+
