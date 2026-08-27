@@ -991,6 +991,7 @@ function handleIdentified(profile) {
     ui.saveDriveBtn.classList.remove('hidden')
     ui.loadDriveBtn.classList.remove('hidden')
     if (ui.holidaysSection) ui.holidaysSection.classList.remove('hidden')
+    refreshHolidayDropdown()
 }
 
 /**
@@ -1918,24 +1919,78 @@ function downloadCSV(csv, filename) {
  * The main entry point for the application. This function is called once the DOM is fully loaded.
  * It caches DOM elements and attaches all necessary event listeners.
  */
+const LOCAL_HOLIDAYS_KEY = 'salk_saved_holidays'
+
+function getLocalSavedHolidays() {
+    try {
+        const raw = localStorage.getItem(LOCAL_HOLIDAYS_KEY)
+        return raw ? JSON.parse(raw) : {}
+    } catch {
+        return {}
+    }
+}
+
+function setLocalSavedHolidays(data) {
+    try {
+        localStorage.setItem(LOCAL_HOLIDAYS_KEY, JSON.stringify(data))
+    } catch (e) {
+        console.warn('Could not write holidays to localStorage:', e)
+    }
+}
+
+/**
+ * Refreshes the "Load saved holidays..." dropdown with both local and Google Drive holiday lists.
+ */
 async function refreshHolidayDropdown() {
     if (!ui.loadHolidaysSelect) return
     try {
-        const token = AuthManager.getToken()
-        if (!token) return
-        const holidays = await DriveStorage.listHolidays(token)
+        const localHolidays = getLocalSavedHolidays()
+        const holidayMap = new Map() // name -> { id, name, dates, source }
+
+        // 1. Load local holidays
+        for (const [name, dates] of Object.entries(localHolidays)) {
+            if (name && Array.isArray(dates)) {
+                holidayMap.set(name, { id: `local:${name}`, name, dates, source: 'local' })
+            }
+        }
+
+        // 2. Fetch Drive holidays if signed in
+        const token = typeof AuthManager !== 'undefined' ? AuthManager.getToken() : null
+        if (token && typeof DriveStorage !== 'undefined') {
+            try {
+                const driveFiles = await DriveStorage.listHolidays(token)
+                for (const f of driveFiles) {
+                    const existing = holidayMap.get(f.name)
+                    holidayMap.set(f.name, {
+                        id: f.id,
+                        name: f.name,
+                        dates: existing ? existing.dates : null,
+                        source: 'drive'
+                    })
+                }
+            } catch (err) {
+                console.warn('Could not list holidays from Google Drive:', err)
+            }
+        }
+
+        const currentVal = ui.loadHolidaysSelect.value
         ui.loadHolidaysSelect.innerHTML = '<option value="">Load saved holidays...</option>'
-        for (const h of holidays) {
+        for (const [name, item] of holidayMap.entries()) {
             const opt = document.createElement('option')
-            opt.value = h.id
-            opt.textContent = h.name
+            opt.value = item.id
+            const countStr = item.dates && Array.isArray(item.dates) ? ` (${item.dates.length} days)` : ''
+            opt.textContent = `${item.name}${countStr}`
             ui.loadHolidaysSelect.appendChild(opt)
         }
+
+        if (currentVal) {
+            ui.loadHolidaysSelect.value = currentVal
+        }
         if (ui.deleteHolidayBtn) {
-            ui.deleteHolidayBtn.classList.toggle('hidden', holidays.length === 0)
+            ui.deleteHolidayBtn.classList.toggle('hidden', !ui.loadHolidaysSelect.value)
         }
     } catch (e) {
-        console.warn('Could not list holidays:', e)
+        console.warn('Could not refresh holiday dropdown:', e)
     }
 }
 
@@ -1945,7 +2000,8 @@ function populateDaysOff(holidays) {
     const rows = ui.daysOffContainer.querySelectorAll('.flex')
     rows.forEach((row, i) => {
         if (i === 0) {
-            row.querySelector('.day-off-input').value = ''
+            const input = row.querySelector('.day-off-input')
+            if (input) input.value = ''
         } else {
             row.remove()
         }
@@ -1953,13 +2009,16 @@ function populateDaysOff(holidays) {
     // Populate
     holidays.forEach((dateStr, i) => {
         if (i === 0) {
-            ui.daysOffContainer.querySelector('.day-off-input').value = dateStr
+            const firstInput = ui.daysOffContainer.querySelector('.day-off-input')
+            if (firstInput) firstInput.value = dateStr
         } else {
             const newRow = ui.dayOffTemplate.content.cloneNode(true)
-            newRow.querySelector('.day-off-input').value = dateStr
+            const input = newRow.querySelector('.day-off-input')
+            if (input) input.value = dateStr
             ui.daysOffContainer.appendChild(newRow)
         }
     })
+    runAllValidations()
 }
 
 function appendDaysOff(newDates) {
@@ -2322,56 +2381,135 @@ function initialize() {
             const dates = Array.from(document.querySelectorAll('.day-off-input'))
                 .map(i => i.value).filter(Boolean)
             if (dates.length === 0) {
-                showToast('No days off to save.', 'error')
+                showToast('No days off to save. Please add at least one date.', 'error')
                 return
             }
-            const name = prompt('Name for this holiday list:')
+            const name = prompt('Name for this holiday list (e.g. 2026-2027 District Holidays):')
             if (!name || !name.trim()) return
-            try {
-                const token = await AuthManager.ensureAccessToken()
-                await DriveStorage.saveHolidays(token, name.trim(), dates)
-                showToast(`Holiday list "${name.trim()}" saved`)
-                refreshHolidayDropdown()
-            } catch (e) {
-                showToast('Could not save holidays.', 'error')
-                console.error('Holiday save error:', e)
+            const trimmedName = name.trim()
+
+            // Always save locally
+            const local = getLocalSavedHolidays()
+            local[trimmedName] = dates
+            setLocalSavedHolidays(local)
+
+            let driveSaved = false
+            if (typeof AuthManager !== 'undefined' && AuthManager.isSignedIn()) {
+                try {
+                    const token = await AuthManager.ensureAccessToken()
+                    await DriveStorage.saveHolidays(token, trimmedName, dates)
+                    driveSaved = true
+                } catch (e) {
+                    console.warn('Drive holiday save warning:', e)
+                }
             }
+
+            await refreshHolidayDropdown()
+            // Select newly saved list in dropdown
+            for (let i = 0; i < ui.loadHolidaysSelect.options.length; i++) {
+                if (ui.loadHolidaysSelect.options[i].textContent.startsWith(trimmedName)) {
+                    ui.loadHolidaysSelect.selectedIndex = i
+                    if (ui.deleteHolidayBtn) ui.deleteHolidayBtn.classList.remove('hidden')
+                    break
+                }
+            }
+            showToast(`Holiday list "${trimmedName}" saved (${dates.length} days)${driveSaved ? ' to Google Drive' : ''}`)
         })
     }
+
     if (ui.loadHolidaysSelect) {
+        // Refresh options on pointerdown / focus if user is signed in with Google
+        ui.loadHolidaysSelect.addEventListener("pointerdown", () => {
+            if (typeof AuthManager !== 'undefined' && AuthManager.isSignedIn()) {
+                refreshHolidayDropdown()
+            }
+        })
+        ui.loadHolidaysSelect.addEventListener("focus", () => {
+            if (typeof AuthManager !== 'undefined' && AuthManager.isSignedIn()) {
+                refreshHolidayDropdown()
+            }
+        })
+
         ui.loadHolidaysSelect.addEventListener("change", async () => {
-            const fileId = ui.loadHolidaysSelect.value
-            if (!fileId) return
+            const val = ui.loadHolidaysSelect.value
+            if (!val) {
+                if (ui.deleteHolidayBtn) ui.deleteHolidayBtn.classList.add('hidden')
+                return
+            }
+            if (ui.deleteHolidayBtn) ui.deleteHolidayBtn.classList.remove('hidden')
+
+            const selectedOpt = ui.loadHolidaysSelect.options[ui.loadHolidaysSelect.selectedIndex]
+            const selectedName = selectedOpt ? selectedOpt.textContent.replace(/\s*\(\d+\s+days\)$/, '') : ''
+
             try {
-                const token = await AuthManager.ensureAccessToken()
-                const holidays = await DriveStorage.loadHoliday(token, fileId)
-                populateDaysOff(holidays)
-                showToast('Holidays loaded', 'info')
+                let holidays = null
+                const local = getLocalSavedHolidays()
+                if (val.startsWith('local:')) {
+                    const name = val.slice(6)
+                    holidays = local[name]
+                } else if (local[selectedName]) {
+                    holidays = local[selectedName]
+                }
+
+                // If not in localStorage or is a Drive ID, load from Google Drive
+                if ((!holidays || holidays.length === 0) && typeof DriveStorage !== 'undefined' && typeof AuthManager !== 'undefined') {
+                    const token = await AuthManager.ensureAccessToken()
+                    holidays = await DriveStorage.loadHoliday(token, val)
+                    // Cache in localStorage
+                    if (selectedName && Array.isArray(holidays)) {
+                        local[selectedName] = holidays
+                        setLocalSavedHolidays(local)
+                    }
+                }
+
+                if (Array.isArray(holidays) && holidays.length > 0) {
+                    populateDaysOff(holidays)
+                    showToast(`Loaded ${holidays.length} holidays from "${selectedName || 'saved list'}"`, 'info')
+                } else {
+                    showToast('Holiday list is empty or could not be loaded.', 'error')
+                }
             } catch (e) {
                 showToast('Could not load holidays.', 'error')
                 console.error('Holiday load error:', e)
             }
-            ui.loadHolidaysSelect.value = ''
         })
     }
+
     if (ui.deleteHolidayBtn) {
         ui.deleteHolidayBtn.addEventListener("click", async () => {
-            const fileId = ui.loadHolidaysSelect.value
-            if (!fileId) {
+            const val = ui.loadHolidaysSelect.value
+            if (!val) {
                 showToast('Select a holiday list to delete first.', 'error')
                 return
             }
-            const name = ui.loadHolidaysSelect.options[ui.loadHolidaysSelect.selectedIndex].textContent
+            const selectedOpt = ui.loadHolidaysSelect.options[ui.loadHolidaysSelect.selectedIndex]
+            const name = selectedOpt ? selectedOpt.textContent.replace(/\s*\(\d+\s+days\)$/, '') : val
             if (!confirm(`Delete holiday list "${name}"?`)) return
-            try {
-                const token = await AuthManager.ensureAccessToken()
-                await DriveStorage.deleteHoliday(token, fileId)
-                showToast(`Holiday list "${name}" deleted`)
-                refreshHolidayDropdown()
-            } catch (e) {
-                showToast('Could not delete holidays.', 'error')
-                console.error('Holiday delete error:', e)
+
+            // Delete from localStorage
+            const local = getLocalSavedHolidays()
+            if (val.startsWith('local:')) {
+                delete local[val.slice(6)]
             }
+            if (local[name]) {
+                delete local[name]
+            }
+            setLocalSavedHolidays(local)
+
+            // If from Drive and signed in, delete from Google Drive
+            if (!val.startsWith('local:') && typeof DriveStorage !== 'undefined' && typeof AuthManager !== 'undefined' && AuthManager.isSignedIn()) {
+                try {
+                    const token = await AuthManager.ensureAccessToken()
+                    await DriveStorage.deleteHoliday(token, val)
+                } catch (e) {
+                    console.warn('Could not delete from Google Drive:', e)
+                }
+            }
+
+            ui.loadHolidaysSelect.value = ''
+            ui.deleteHolidayBtn.classList.add('hidden')
+            await refreshHolidayDropdown()
+            showToast(`Holiday list "${name}" deleted`)
         })
     }
 
@@ -2617,6 +2755,9 @@ function initialize() {
 
     // Show empty state if no schedule loaded (Feature 2)
     showEmptyState()
+
+    // Populate saved holidays dropdown on startup
+    refreshHolidayDropdown()
 }
 
 // --- Application Entry Point ---

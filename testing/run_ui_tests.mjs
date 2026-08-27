@@ -18,17 +18,26 @@ const uiCode = readFileSync(join(__dirname, '..', 'ui_logic.js'), 'utf8');
  * Load parseCSVToSchedule and computeWeeksFromEndDate into a sandboxed context.
  * We mock `document` and `ui` just enough to avoid errors on load.
  */
-function loadUI() {
-    const mockDocument = { addEventListener: () => {} };
+function loadUI(customLocalStorage = {}) {
+    const mockStorage = {
+        _store: { ...customLocalStorage },
+        getItem(k) { return this._store[k] !== undefined ? this._store[k] : null; },
+        setItem(k, v) { this._store[k] = String(v); },
+        removeItem(k) { delete this._store[k]; }
+    };
+    const mockDocument = {
+        addEventListener: () => {},
+        createElement: (tag) => ({ tag, value: '', textContent: '' })
+    };
     const mockWindow = { matchMedia: () => ({ matches: false, addEventListener: () => {} }) };
     const mockNavigator = { maxTouchPoints: 0 };
     // Replace 'const ui =' with 'var ui =' so it doesn't clash with strict mode
     const patchedUiCode = uiCode.replace('const ui = {', 'var ui = {');
-    const fn = new Function('document', 'window', 'navigator',
+    const fn = new Function('document', 'window', 'navigator', 'localStorage',
         configCode + '\n' + schedulerCode + '\n' + patchedUiCode +
-        '\nreturn { parseCSVToSchedule, parseScheduleLine, computeWeeksFromEndDate, ScheduleEntry, ui };'
+        '\nreturn { parseCSVToSchedule, parseScheduleLine, computeWeeksFromEndDate, ScheduleEntry, getLocalSavedHolidays, setLocalSavedHolidays, refreshHolidayDropdown, populateDaysOff, ui, localStorage };'
     );
-    return fn(mockDocument, mockWindow, mockNavigator);
+    return fn(mockDocument, mockWindow, mockNavigator, mockStorage);
 }
 
 const loaded = loadUI();
@@ -213,6 +222,40 @@ testComputeWeeks('2026-09-17', '2026-09-08', '', 'end before start: no weeks com
 testComputeWeeks('', '2026-09-17', '', 'missing start: no weeks computed');
 testComputeWeeks('2026-09-08', '', '', 'missing end: no weeks computed');
 testComputeWeeks('2026-01-01', '2027-06-01', 52, 'clamped to 52 weeks max');
+
+// ============================================================
+// Holiday storage & dropdown tests
+// ============================================================
+console.log('\n--- Holiday Storage & Dropdown ---');
+
+{
+    const { getLocalSavedHolidays, setLocalSavedHolidays, refreshHolidayDropdown, ui, mockStorage } = loadUI();
+    // Test 1: Empty storage
+    assertEqual(Object.keys(getLocalSavedHolidays()).length, 0, 'empty local holidays on start');
+
+    // Test 2: Save holiday set
+    const sampleDates = ['2026-09-21', '2026-10-12', '2026-11-26'];
+    setLocalSavedHolidays({ '2026 District': sampleDates });
+    const saved = getLocalSavedHolidays();
+    assertEqual(saved['2026 District'].length, 3, 'saved holiday list in localStorage');
+
+    // Test 3: Refresh dropdown populates options from localStorage
+    const selectMock = {
+        innerHTML: '',
+        value: '',
+        options: [],
+        appendChild(opt) {
+            this.options.push(opt);
+        }
+    };
+    ui.loadHolidaysSelect = selectMock;
+    ui.deleteHolidayBtn = { classList: { toggle: () => {} } };
+    refreshHolidayDropdown();
+
+    assertEqual(selectMock.options.length, 1, 'dropdown populated with 1 saved list');
+    assertEqual(selectMock.options[0].value, 'local:2026 District', 'option value format');
+    assertEqual(selectMock.options[0].textContent, '2026 District (3 days)', 'option label format with count');
+}
 
 // ============================================================
 // Summary

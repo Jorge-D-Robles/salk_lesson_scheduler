@@ -96,7 +96,7 @@ const DriveStorage = (() => {
     async function findHolidayFiles(token) {
         const params = new URLSearchParams({
             spaces: 'appDataFolder',
-            q: `name contains '${HOLIDAY_PREFIX}'`,
+            q: `name contains '${HOLIDAY_PREFIX}' and trashed = false`,
             fields: 'files(id,name)',
             orderBy: 'name',
         });
