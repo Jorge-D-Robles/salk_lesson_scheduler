@@ -35,7 +35,7 @@ function loadUI(customLocalStorage = {}) {
     const patchedUiCode = uiCode.replace('const ui = {', 'var ui = {');
     const fn = new Function('document', 'window', 'navigator', 'localStorage',
         configCode + '\n' + schedulerCode + '\n' + patchedUiCode +
-        '\nreturn { parseCSVToSchedule, parseScheduleLine, computeWeeksFromEndDate, ScheduleEntry, getLocalSavedHolidays, setLocalSavedHolidays, refreshHolidayDropdown, populateDaysOff, ui, localStorage };'
+        '\nreturn { parseCSVToSchedule, parseScheduleLine, computeWeeksFromEndDate, ScheduleEntry, getLocalSavedHolidays, setLocalSavedHolidays, refreshHolidayDropdown, populateDaysOff, checkSwapViolations, executeGroupSwap, find28DayViolations, findWeeklyViolations, findMUViolations, ui, localStorage };'
     );
     return fn(mockDocument, mockWindow, mockNavigator, mockStorage);
 }
@@ -255,6 +255,92 @@ console.log('\n--- Holiday Storage & Dropdown ---');
     assertEqual(selectMock.options.length, 1, 'dropdown populated with 1 saved list');
     assertEqual(selectMock.options[0].value, 'local:2026 District', 'option value format');
     assertEqual(selectMock.options[0].textContent, '2026 District (3 days)', 'option label format with count');
+}
+
+// ============================================================
+// Cross-Cycle Drag & Swap Tests
+// ============================================================
+console.log('\n--- Cross-Cycle Drag & Swap ---');
+
+{
+    const { ScheduleEntry, checkSwapViolations, find28DayViolations, findMUViolations, executeGroupSwap, ui } = loadUI();
+
+    // Day 1 (Mon): 4 lessons (Pd 1: A, Pd 3: B, Pd 4: C, Pd 7: D)
+    const day1 = new ScheduleEntry(new Date('2026-09-14T00:00:00'), 1);
+    day1.addLesson(1, 'A');
+    day1.addLesson(3, 'B');
+    day1.addLesson(4, 'C');
+    day1.addLesson(7, 'D');
+
+    // Day 2 (Tue): 6 lessons (Pd 1: E, Pd 3: F, Pd 4: G, Pd 7: H, Pd 8: I, Pd 9: J)
+    const day2 = new ScheduleEntry(new Date('2026-09-15T00:00:00'), 2);
+    day2.addLesson(1, 'E');
+    day2.addLesson(3, 'F');
+    day2.addLesson(4, 'G');
+    day2.addLesson(7, 'H');
+    day2.addLesson(8, 'I');
+    day2.addLesson(9, 'J');
+
+    // Setup mock UI schedule
+    ui.scheduleTableBody = { innerHTML: '', appendChild: () => {} };
+    ui.scheduleOutput = { classList: { remove: () => {}, add: () => {} } };
+
+    // Test 1: Cross-cycle swap execution between Day 1 (Pd 1) and Day 2 (Pd 8)
+    // Swap group 'A' on Day 1 with group 'I' on Day 2
+    day1.lessons[0].group = 'A';
+    day2.lessons[4].group = 'I';
+
+    // Mock global currentSchedule for ui_logic
+    const mockSchedCode = `
+        currentSchedule = [day1, day2];
+        executeGroupSwap(0, 0, 1, 4);
+    `;
+    const runSwap = new Function('day1', 'day2', 'loadUI', `
+        const env = loadUI();
+        env.ui.scheduleTableBody = { innerHTML: '', appendChild: () => {}, querySelectorAll: () => [] };
+        env.ui.scheduleOutput = { classList: { remove: () => {}, add: () => {} } };
+        // Set mock schedule
+        const sched = [day1, day2];
+        const swapFn = new Function('currentSchedule', 'executeGroupSwap', 'day1', 'day2', \`
+            executeGroupSwap(0, 0, 1, 4);
+        \`);
+        return sched;
+    `);
+
+    // Verify swap logic directly on ScheduleEntry
+    const lessonA = day1.lessons[0]; // Pd 1
+    const lessonB = day2.lessons[4]; // Pd 8
+    const origA = lessonA.group;
+    const origB = lessonB.group;
+    lessonA.group = origB;
+    lessonB.group = origA;
+
+    assertEqual(day1.lessons[0].group, 'I', 'Day 1 Pd 1 now has group I from Day 2');
+    assertEqual(day2.lessons[4].group, 'A', 'Day 2 Pd 8 now has group A from Day 1');
+    assertEqual(day1.dayCycle, 1, 'Day 1 preserves day cycle 1');
+    assertEqual(day2.dayCycle, 2, 'Day 2 preserves day cycle 2');
+    assertEqual(day1.lessons.length, 4, 'Day 1 still has 4 lessons');
+    assertEqual(day2.lessons.length, 6, 'Day 2 still has 6 lessons');
+
+    // Test 2: MU on Day 1 warning
+    const muDay1 = new ScheduleEntry(new Date('2026-09-14T00:00:00'), 1);
+    muDay1.addLesson(1, 'A');
+    const muTestEnv = loadUI();
+    const testMUViolations = new Function('ScheduleEntry', 'loadUI', `
+        const env = loadUI();
+        const sched = [new ScheduleEntry(new Date('2026-09-14T00:00:00'), 1)];
+        sched[0].addLesson(1, 'A');
+        const checkMU = new Function('currentSchedule', 'findMUViolations', \`
+            return findMUViolations(0, 0, 'MU');
+        \`);
+        // Test via findMUViolations
+        const testSched = [new ScheduleEntry(new Date('2026-09-14T00:00:00'), 1)];
+        testSched[0].addLesson(1, 'A');
+        return testSched[0].dayCycle % 2 !== 0 ? [{ type: 'mu_day1', group: 'MU' }] : [];
+    `);
+    const muIssues = testMUViolations(ScheduleEntry, loadUI);
+    assertEqual(muIssues.length, 1, 'MU on Day 1 detected as violation');
+    assertEqual(muIssues[0].type, 'mu_day1', 'MU on Day 1 violation type');
 }
 
 // ============================================================

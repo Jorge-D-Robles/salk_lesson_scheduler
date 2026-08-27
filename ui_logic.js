@@ -235,11 +235,9 @@ function handleTouchSelect(cell) {
         // First selection
         touchSwapState = { dayIndex, lessonIndex, group, dayCycle, cell }
         cell.classList.add('touch-selected')
-        // Highlight compatible cells (same day cycle)
+        // Highlight all other compatible lesson cells
         ui.scheduleTableBody.querySelectorAll('.lesson-group-cell').forEach(c => {
-            if (c === cell) return
-            const ci = parseInt(c.dataset.dayIndex, 10)
-            if (currentSchedule[ci].dayCycle === dayCycle) {
+            if (c !== cell) {
                 c.classList.add('touch-compatible')
             }
         })
@@ -252,21 +250,16 @@ function handleTouchSelect(cell) {
         return
     }
 
-    // Second selection — attempt swap
-    const targetDayCycle = currentSchedule[dayIndex].dayCycle
-    if (targetDayCycle !== touchSwapState.dayCycle) {
-        showToast('Can only swap within the same day cycle', 'error')
-        clearTouchSelection()
-        return
-    }
-
+    // Second selection — attempt swap (cross-cycle and within-cycle both allowed)
     const violations = checkSwapViolations(touchSwapState.dayIndex, touchSwapState.lessonIndex, dayIndex, lessonIndex)
     if (violations.length > 0) {
         const msgs = violations.map(v => {
             if (v.type === 'weekly') return `${v.group} already scheduled this week (${v.conflictDate})`
+            if (v.type === 'spacing') return `${SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR}-day conflict: ${v.group} had Pd ${v.period} on ${v.conflictDate} (${v.gap}d ${v.direction})`
             if (v.type === 'mu') return `Would create 2+ MU slots on ${v.conflictDate}`
+            if (v.type === 'mu_day1') return `Make-Up (MU) slots should only be on Day 2 days (${v.conflictDate})`
             return ''
-        }).join('; ')
+        }).filter(Boolean).join('; ')
         showToast(`Warning: ${msgs}. Tap again to swap anyway.`, 'info', {
             label: 'Swap anyway',
             callback: () => {
@@ -730,16 +723,62 @@ function findWeeklyViolations(sourceDayIndex, targetDayIndex, groupA, groupB) {
 function findMUViolations(dayIndex, lessonIndex, newGroup) {
     if (!newGroup.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) return []
     const entry = currentSchedule[dayIndex]
+    const conflictDate = entry.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    if (entry.dayCycle % 2 !== 0) {
+        return [{ type: 'mu_day1', group: newGroup, conflictDate }]
+    }
     let muCount = 0
     for (let i = 0; i < entry.lessons.length; i++) {
         if (i === lessonIndex) continue
         if (entry.lessons[i].group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) muCount++
     }
     if (muCount >= 1) {
-        const conflictDate = entry.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
         return [{ type: 'mu', group: newGroup, conflictDate }]
     }
     return []
+}
+
+function find28DayViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, targetLessonIndex, groupA, groupB) {
+    if (!currentSchedule) return []
+    const violations = []
+    const sourceEntry = currentSchedule[sourceDayIndex]
+    const targetEntry = currentSchedule[targetDayIndex]
+    const periodA = parseInt(targetEntry.lessons[targetLessonIndex].period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+    const periodB = parseInt(sourceEntry.lessons[sourceLessonIndex].period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+
+    const checks = [
+        { group: groupA, destDate: targetEntry.date, destPeriod: periodA, destIdx: targetDayIndex, fromIdx: sourceDayIndex },
+        { group: groupB, destDate: sourceEntry.date, destPeriod: periodB, destIdx: sourceDayIndex, fromIdx: targetDayIndex },
+    ]
+
+    for (const { group, destDate, destPeriod, destIdx, fromIdx } of checks) {
+        if (!group || group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) continue
+        for (let i = 0; i < currentSchedule.length; i++) {
+            if (i === destIdx || i === fromIdx) continue
+            const otherEntry = currentSchedule[i]
+            const gap = Math.round(Math.abs(destDate - otherEntry.date) / SCHEDULE_CONFIG.ONE_DAY_MS)
+            if (gap < SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR) {
+                for (const lesson of otherEntry.lessons) {
+                    if (lesson.group === group) {
+                        const otherPeriod = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+                        if (otherPeriod === destPeriod) {
+                            const conflictDate = otherEntry.date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                            const direction = otherEntry.date < destDate ? 'ago' : 'later'
+                            violations.push({
+                                type: 'spacing',
+                                group,
+                                period: destPeriod,
+                                conflictDate,
+                                gap,
+                                direction
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return violations
 }
 
 function checkSwapViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, targetLessonIndex) {
@@ -750,6 +789,7 @@ function checkSwapViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, 
     // After swap: groupA goes to target period, groupB goes to source period
     const violations = [
         ...findWeeklyViolations(sourceDayIndex, targetDayIndex, lessonA.group, lessonB.group),
+        ...find28DayViolations(sourceDayIndex, sourceLessonIndex, targetDayIndex, targetLessonIndex, lessonA.group, lessonB.group),
         ...findMUViolations(targetDayIndex, targetLessonIndex, lessonA.group),
         ...findMUViolations(sourceDayIndex, sourceLessonIndex, lessonB.group),
     ]
@@ -818,7 +858,9 @@ function showSwapWarningTooltip(cell, violations) {
     tooltip.appendChild(closeBtn)
     let html = violations.map(v => {
         if (v.type === 'weekly') return `<div class="warn-line">${v.group} already scheduled this week (${v.conflictDate})</div>`
+        if (v.type === 'spacing') return `<div class="warn-line">${SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR}-day conflict: ${v.group} had Pd ${v.period} on ${v.conflictDate} (${v.gap}d ${v.direction})</div>`
         if (v.type === 'mu') return `<div class="warn-line">Would create 2+ MU slots on ${v.conflictDate}</div>`
+        if (v.type === 'mu_day1') return `<div class="warn-line">Make-Up (MU) slots should only be on Day 2 days (${v.conflictDate})</div>`
         return ''
     }).join('')
     html += '<div class="warn-hint">Drop to swap anyway</div>'
@@ -853,16 +895,12 @@ function dismissIssueTooltip() {
     }
 }
 
-function highlightDragRow(activeDayCycle) {
+function highlightDragRow() {
     const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer)')
     rows.forEach(row => {
         const btn = row.querySelector('.day-delete-btn')
-        if (!btn) return
-        const idx = parseInt(btn.dataset.dayIndex, 10)
-        if (currentSchedule[idx].dayCycle === activeDayCycle) {
+        if (btn) {
             row.classList.add('drag-row-active')
-        } else {
-            row.classList.add('drag-row-inactive')
         }
     })
 }
@@ -2134,7 +2172,7 @@ function initialize() {
             dayCycle: currentSchedule[parsedDayIndex].dayCycle,
         }
         cell.classList.add('dragging')
-        highlightDragRow(dragState.dayCycle)
+        highlightDragRow()
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('text/plain', '')
     })
@@ -2144,7 +2182,6 @@ function initialize() {
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell || cell === dragState.sourceCell) return
         const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
-        if (currentSchedule[targetDayIndex].dayCycle !== dragState.dayCycle) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
         if (cell === lastHoveredCell) return
@@ -2168,10 +2205,7 @@ function initialize() {
         if (!dragState) return
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell || cell === dragState.sourceCell) return
-        const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
-        if (currentSchedule[targetDayIndex].dayCycle === dragState.dayCycle) {
-            e.preventDefault()
-        }
+        e.preventDefault()
     })
 
     ui.scheduleTableBody.addEventListener('dragleave', (e) => {
@@ -2194,7 +2228,6 @@ function initialize() {
         const cell = e.target.closest('.lesson-group-cell')
         if (!cell || cell === dragState.sourceCell) return
         const targetDayIndex = parseInt(cell.dataset.dayIndex, 10)
-        if (currentSchedule[targetDayIndex].dayCycle !== dragState.dayCycle) return
         const targetLessonIndex = parseInt(cell.dataset.lessonIndex, 10)
         executeGroupSwap(dragState.dayIndex, dragState.lessonIndex, targetDayIndex, targetLessonIndex)
         // Cleanup happens in dragend
