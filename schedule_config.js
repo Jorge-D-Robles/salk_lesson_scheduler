@@ -16,7 +16,7 @@ const SCHEDULE_CONFIG = Object.freeze({
     DEFAULT_GROUP_NAMES: Object.freeze(
         Array.from({ length: _GROUP_COUNT }, (_, i) => String.fromCharCode(65 + i))
     ),
-    CALENDAR_SPACING_FLOOR: 28,
+    CALENDAR_SPACING_FLOOR: 26,
     REDUCED_SPACING_FLOOR: 21,
     MU_LIMIT_PER_DAY: 1,
     MU_TOKEN: "MU",
