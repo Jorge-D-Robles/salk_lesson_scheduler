@@ -219,7 +219,7 @@ function toggleGroupHighlight(groupName) {
         }
     })
     // Dim spacer rows
-    ui.scheduleTableBody.querySelectorAll('.weekly-spacer, .cycle-spacer, .cohort-spacer').forEach(row => {
+    ui.scheduleTableBody.querySelectorAll('.weekly-spacer, .cohort-spacer').forEach(row => {
         row.classList.add('row-dimmed')
     })
     const banner = document.getElementById('group-highlight-banner')
@@ -914,7 +914,7 @@ function dismissIssueTooltip() {
 }
 
 function highlightDragRow() {
-    const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer):not(.cohort-spacer)')
+    const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cohort-spacer)')
     rows.forEach(row => {
         const btn = row.querySelector('.day-delete-btn')
         if (btn) {
@@ -1798,8 +1798,6 @@ function displaySchedule(schedule, previousSchedule = null) {
     let currentWeekId = null
 
     let currentWeekIdentifier = getWeekIdentifier(schedule[0].date)
-    let fourWeekBoundary = new Date(schedule[0].date.getTime())
-    fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
 
     schedule.forEach((entry, index) => {
         // Sort lessons by period number for display
@@ -1916,24 +1914,6 @@ function displaySchedule(schedule, previousSchedule = null) {
             cohortRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1.5 px-3 text-center text-xs font-bold text-indigo-900 dark:text-indigo-200 select-none tracking-wide">&#10003; End of Lesson #${cohortNum} Cohort &mdash; All 24 Groups Completed</td>`
             ui.scheduleTableBody.appendChild(cohortRow)
         }
-
-        const isNotLastDay = index + 1 < schedule.length
-        if (isNotLastDay) {
-            const currentDate = entry.date
-            const nextDate = schedule[index + 1].date
-            if (
-                currentDate < fourWeekBoundary &&
-                nextDate >= fourWeekBoundary
-            ) {
-                const cycleSpacerRow = document.createElement("tr")
-                cycleSpacerRow.className = "bg-indigo-100 dark:bg-indigo-800 cycle-spacer"
-                cycleSpacerRow.dataset.weekId = entryWeekIdentifier
-                if (isCollapsed) cycleSpacerRow.style.display = 'none'
-                cycleSpacerRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-2 text-center text-sm font-semibold text-indigo-700 dark:text-indigo-300">--- End of ${SCHEDULE_CONFIG.HISTORY_WEEKS}-Week Period ---</td>`
-                ui.scheduleTableBody.appendChild(cycleSpacerRow)
-                fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
-            }
-        }
     })
     displayScheduleSummary(schedule, cellIssues)
     populateJumpToGroup(schedule)
@@ -1968,15 +1948,7 @@ function exportTableToCSV(filename) {
     }
     csv.push(header.join(','))
 
-    let fourWeekBoundary = new Date(currentSchedule[0].date.getTime())
-    fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
-
     for (const entry of currentSchedule) {
-        // Insert blank row for cycle boundary
-        if (entry.date >= fourWeekBoundary) {
-            csv.push('')
-            fourWeekBoundary.setDate(fourWeekBoundary.getDate() + SCHEDULE_CONFIG.CALENDAR_SPACING_FLOOR)
-        }
         const dateStr = entry.date.toLocaleDateString(undefined, {
             weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
         })
@@ -2694,7 +2666,7 @@ function initialize() {
             return
         }
         // Click on non-group area: clear highlight
-        if (highlightedGroup && !e.target.closest('.weekly-spacer, .cycle-spacer, .cohort-spacer')) {
+        if (highlightedGroup && !e.target.closest('.weekly-spacer, .cohort-spacer')) {
             clearGroupHighlight()
         }
     })
