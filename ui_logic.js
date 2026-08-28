@@ -116,6 +116,21 @@ function preparePrintHeader() {
     // Build print table — columns: Date | Day | one col per unique period
     const allPeriods = [...new Set([...SCHEDULE_CONFIG.DAY1_PERIODS, ...SCHEDULE_CONFIG.DAY2_PERIODS])].sort((a, b) => a - b)
 
+    // Pre-calculate lesson numbers for print
+    const printLessonCounts = {}
+    const printCellLessonNumbers = new Map()
+    for (const entry of currentSchedule) {
+        const dateKey = toLocalDateString(entry.date)
+        for (const lesson of entry.lessons) {
+            if (!lesson.group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) {
+                const count = (printLessonCounts[lesson.group] || 0) + 1
+                printLessonCounts[lesson.group] = count
+                const pNum = parseInt(lesson.period.replace(SCHEDULE_CONFIG.PERIOD_PREFIX, ''), 10)
+                printCellLessonNumbers.set(`${dateKey}-${pNum}`, count)
+            }
+        }
+    }
+
     // Group entries by month
     const months = []
     let currentMonth = null
@@ -138,6 +153,7 @@ function preparePrintHeader() {
         html += `<table class="print-table">${headerRow}<tbody>`
         for (const entry of month.entries) {
             const dateStr = entry.date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+            const dateKey = toLocalDateString(entry.date)
             // Build period -> group lookup for this day
             const periodMap = {}
             for (const lesson of entry.lessons) {
@@ -155,7 +171,9 @@ function preparePrintHeader() {
                     const printColor = isMU ? null : getGroupPrintColor(group)
                     const style = printColor ? ` style="--print-bg: ${printColor.bg}; --print-border: ${printColor.border}"` : ''
                     const cls = isMU ? 'print-mu-cell' : 'print-group-cell'
-                    cells += `<td class="${cls}"${style}>${group}</td>`
+                    const lNum = printCellLessonNumbers.get(`${dateKey}-${p}`)
+                    const badge = lNum ? ` <span class="lesson-num-badge">#${lNum}</span>` : ''
+                    cells += `<td class="${cls}"${style}>${group}${badge}</td>`
                 } else if (!dayPeriods.includes(p)) {
                     // Period doesn't exist on this day type
                     cells += `<td style="background: #f9fafb;"></td>`
@@ -201,7 +219,7 @@ function toggleGroupHighlight(groupName) {
         }
     })
     // Dim spacer rows
-    ui.scheduleTableBody.querySelectorAll('.weekly-spacer, .cycle-spacer').forEach(row => {
+    ui.scheduleTableBody.querySelectorAll('.weekly-spacer, .cycle-spacer, .cohort-spacer').forEach(row => {
         row.classList.add('row-dimmed')
     })
     const banner = document.getElementById('group-highlight-banner')
@@ -896,7 +914,7 @@ function dismissIssueTooltip() {
 }
 
 function highlightDragRow() {
-    const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer)')
+    const rows = ui.scheduleTableBody.querySelectorAll('tr:not(.weekly-spacer):not(.cycle-spacer):not(.cohort-spacer)')
     rows.forEach(row => {
         const btn = row.querySelector('.day-delete-btn')
         if (btn) {
@@ -1751,6 +1769,30 @@ function displaySchedule(schedule, previousSchedule = null) {
         }
     }
 
+    // Pre-compute lesson numbers for each cell and cohort completions
+    const groupLessonCounts = {}
+    const cellLessonNumbers = new Map() // `${dayIndex}-${lessonIdx}` -> lessonNum
+    const cohortCompletions = new Map() // dayIndex -> completedCohortNumber
+    let lastCompletedCohort = 0
+
+    schedule.forEach((entry, dIdx) => {
+        entry.lessons.forEach((lesson, lIdx) => {
+            if (!lesson.group.startsWith(SCHEDULE_CONFIG.MU_TOKEN)) {
+                const count = (groupLessonCounts[lesson.group] || 0) + 1
+                groupLessonCounts[lesson.group] = count
+                cellLessonNumbers.set(`${dIdx}-${lIdx}`, count)
+            }
+        })
+        const counts = Object.values(groupLessonCounts)
+        if (counts.length === SCHEDULE_CONFIG.REQUIRED_UNIQUE_GROUPS) {
+            const minCount = Math.min(...counts)
+            if (minCount > lastCompletedCohort) {
+                cohortCompletions.set(dIdx, minCount)
+                lastCompletedCohort = minCount
+            }
+        }
+    })
+
     // Track weeks for collapsible feature
     const weekRows = new Map() // weekId -> [row elements]
     let currentWeekId = null
@@ -1849,8 +1891,12 @@ function displaySchedule(schedule, previousSchedule = null) {
                         diffCount++
                     }
                 }
+                const lessonNum = cellLessonNumbers.get(`${index}-${lessonIdx}`)
+                const lessonBadge = lessonNum
+                    ? `<span class="lesson-num-badge" title="Lesson #${lessonNum} for Group ${lesson.group}">#${lessonNum}</span>`
+                    : ''
                 const draggableAttr = isTouchDevice ? '' : 'draggable="true" '
-                rowHTML += `<td ${draggableAttr}class="px-2 py-3 whitespace-nowrap text-sm text-center ${groupClass} font-semibold lesson-group-cell${diffClass}" data-day-index="${index}" data-lesson-index="${lessonIdx}" data-group="${lesson.group}"${bgStyle}>${lesson.group}${indicator}</td>`
+                rowHTML += `<td ${draggableAttr}class="px-2 py-3 whitespace-nowrap text-sm text-center ${groupClass} font-semibold lesson-group-cell${diffClass}" data-day-index="${index}" data-lesson-index="${lessonIdx}" data-group="${lesson.group}" data-lesson-num="${lessonNum || ''}"${bgStyle}><span class="group-label">${lesson.group}</span>${lessonBadge}${indicator}</td>`
             } else if (!dayPeriods.includes(p)) {
                 rowHTML += '<td class="px-2 py-3 bg-gray-50 dark:bg-gray-900"></td>'
             } else {
@@ -1859,6 +1905,17 @@ function displaySchedule(schedule, previousSchedule = null) {
         }
         row.innerHTML = rowHTML
         ui.scheduleTableBody.appendChild(row)
+
+        // If a cohort finished on this day, insert cohort divider row
+        if (cohortCompletions.has(index)) {
+            const cohortNum = cohortCompletions.get(index)
+            const cohortRow = document.createElement("tr")
+            cohortRow.className = "cohort-spacer"
+            cohortRow.dataset.weekId = entryWeekIdentifier
+            if (isCollapsed) cohortRow.style.display = 'none'
+            cohortRow.innerHTML = `<td colspan="${SCHEDULE_CONFIG.TABLE_COLUMNS}" class="py-1.5 px-3 text-center text-xs font-bold text-indigo-900 dark:text-indigo-200 select-none tracking-wide">&#10003; End of Lesson #${cohortNum} Cohort &mdash; All 24 Groups Completed</td>`
+            ui.scheduleTableBody.appendChild(cohortRow)
+        }
 
         const isNotLastDay = index + 1 < schedule.length
         if (isNotLastDay) {
@@ -2637,7 +2694,7 @@ function initialize() {
             return
         }
         // Click on non-group area: clear highlight
-        if (highlightedGroup && !e.target.closest('.weekly-spacer')) {
+        if (highlightedGroup && !e.target.closest('.weekly-spacer, .cycle-spacer, .cohort-spacer')) {
             clearGroupHighlight()
         }
     })
